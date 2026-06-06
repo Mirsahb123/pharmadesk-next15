@@ -1,0 +1,234 @@
+"use client"
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { db } from '@/lib/firebase'
+import { collection, getDocs } from 'firebase/firestore'
+
+export default function ReportsPage() {
+  const [bills, setBills] = useState<any[]>([])
+  const [filteredBills, setFilteredBills] = useState<any[]>([])
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [searchCustomer, setSearchCustomer] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      // Firebase se bills lao
+      const billsSnap = await getDocs(collection(db, 'bills'))
+      const allBills = billsSnap.docs.map(d => ({ id: d.id,...d.data() }))
+
+      setBills(allBills)
+      setFilteredBills(allBills)
+    } catch (error) {
+      console.error('Load error:', error)
+      setBills([])
+      setFilteredBills([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let filtered = bills
+
+    if(startDate) {
+      filtered = filtered.filter(b => new Date(b.date) >= new Date(startDate))
+    }
+    if(endDate) {
+      const end = new Date(endDate)
+      end.setHours(23,59,59,999)
+      filtered = filtered.filter(b => new Date(b.date) <= end)
+    }
+    if(searchCustomer) {
+      filtered = filtered.filter(b =>
+        b.customerName?.toLowerCase().includes(searchCustomer.toLowerCase())
+      )
+    }
+
+    setFilteredBills(filtered)
+  }, [startDate, endDate, searchCustomer, bills])
+
+  // Fix: Array.isArray check lagao
+  const billsArray = Array.isArray(filteredBills)? filteredBills : []
+
+  const totalSales = billsArray.reduce((sum, bill) => sum + (bill.total || 0), 0)
+  const totalGST = billsArray.reduce((sum, bill) => sum + (bill.gst || 0), 0)
+  const avgBill = billsArray.length > 0? (totalSales / billsArray.length).toFixed(2) : 0
+
+  // Top selling medicines
+  const medicineSales: any = {}
+  billsArray.forEach(bill => {
+    if (bill.items && Array.isArray(bill.items)) {
+      bill.items.forEach((item: any) => {
+        if (medicineSales[item.name]) {
+          medicineSales[item.name] += item.cartQty || 0
+        } else {
+          medicineSales[item.name] = item.cartQty || 0
+        }
+      })
+    }
+  })
+  const topMedicines = Object.entries(medicineSales)
+.sort((a: any, b: any) => b[1] - a[1])
+.slice(0, 5)
+
+  const clearFilters = () => {
+    setStartDate('')
+    setEndDate('')
+    setSearchCustomer('')
+  }
+
+  const exportCSV = () => {
+    const headers = ['Bill No,Date,Customer,Items,Subtotal,GST,Total\n']
+    const rows = billsArray.map(b => {
+      const items = b.items?.map((i: any) => `${i.name}x${i.cartQty}`).join('; ') || ''
+      return `${b.id},${new Date(b.date).toLocaleString()},${b.customerName || 'N/A'},"${items}",${b.subtotal || 0},${b.gst || 0},${b.total}`
+    }).join('\n')
+
+    const blob = new Blob([headers + rows], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `sales-report-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 font-semibold">Loading reports...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Sales Reports</h1>
+          <Link href="/dashboard" className="text-blue-600 hover:underline">← Dashboard</Link>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+          <h2 className="text-lg font-bold mb-4">Filters</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Start Date</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e=>setStartDate(e.target.value)}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">End Date</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e=>setEndDate(e.target.value)}
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Customer Name</label>
+              <input
+                type="text"
+                value={searchCustomer}
+                onChange={e=>setSearchCustomer(e.target.value)}
+                placeholder="Search customer..."
+                className="border p-2 rounded w-full"
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <button
+                onClick={clearFilters}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 flex-1"
+              >
+                Clear
+              </button>
+              <button
+                onClick={exportCSV}
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 flex-1"
+              >
+                Export CSV
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <p className="text-gray-500 text-sm mb-1">Total Sales</p>
+            <p className="text-3xl font-bold text-gray-900">₹{totalSales.toFixed(2)}</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <p className="text-gray-500 text-sm mb-1">Total GST</p>
+            <p className="text-3xl font-bold text-gray-900">₹{totalGST.toFixed(2)}</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <p className="text-gray-500 text-sm mb-1">Total Bills</p>
+            <p className="text-3xl font-bold text-gray-900">{billsArray.length}</p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <p className="text-gray-500 text-sm mb-1">Average Bill</p>
+            <p className="text-3xl font-bold text-gray-900">₹{avgBill}</p>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 className="text-xl font-bold mb-4 text-gray-900">Top Selling Medicines</h2>
+            {topMedicines.length === 0? (
+              <p className="text-gray-500">No sales in selected range</p>
+            ) : (
+              <div className="space-y-3">
+                {topMedicines.map(([name, qty]: any, i) => (
+                  <div key={i} className="flex justify-between items-center border-b pb-2">
+                    <span className="font-medium">{name}</span>
+                    <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm font-semibold">
+                      {qty} sold
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 className="text-xl font-bold mb-4 text-gray-900">Bills - {billsArray.length}</h2>
+            {billsArray.length === 0? (
+              <p className="text-gray-500">No bills found</p>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {billsArray.slice().reverse().map(b => (
+                  <div key={b.id} className="border-b pb-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium">Bill #{b.id.toString().slice(-6)}</p>
+                        <p className="text-xs text-gray-500">{b.customerName || 'Walk-in'}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(b.date).toLocaleString()}
+                        </p>
+                      </div>
+                      <p className="font-bold text-green-600">₹{b.total}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

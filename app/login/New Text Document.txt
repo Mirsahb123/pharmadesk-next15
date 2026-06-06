@@ -1,0 +1,142 @@
+"use client"
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
+export default function LoginPage() {
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [debug, setDebug] = useState<any[]>([])
+  const router = useRouter()
+
+  useEffect(() => {
+    // Already logged in check
+    const currentUser = localStorage.getItem('currentUser')
+    if (currentUser) {
+      router.push('/dashboard')
+      return
+    }
+
+    // Default admin ensure karo
+    let staffList = JSON.parse(localStorage.getItem('staff') || '[]')
+    const adminExists = staffList.find((s: any) => s.role === 'admin')
+
+    if (!adminExists) {
+      const defaultAdmin = {
+        id: Date.now(),
+        name: 'Admin',
+        phone: '03001234567',
+        password: 'admin123',
+        role: 'admin',
+        salary: 0
+      }
+      staffList = [defaultAdmin,...staffList]
+      localStorage.setItem('staff', JSON.stringify(staffList))
+    }
+    setDebug(staffList) // Debug ke liye
+  }, [router])
+
+  const handleLogin = () => {
+    if (!phone ||!password) return alert('Phone aur Password dono likho')
+
+    // FRESH data load karo har login pe
+    const staffList = JSON.parse(localStorage.getItem('staff') || '[]')
+    console.log('Staff List:', staffList) // Console me check karo
+
+    const user = staffList.find((s: any) =>
+      s.phone.trim() === phone.trim() && s.password === password
+    )
+
+    if (!user) {
+      alert(`Login Failed!\n\nAvailable Users:\n${staffList.map((s: any) => `${s.name} - ${s.phone}`).join('\n')}\n\nCheck karo phone/password sahi hai`)
+      return
+    }
+
+    localStorage.setItem('currentUser', JSON.stringify(user))
+    alert(`Welcome ${user.name}!`)
+    router.push('/dashboard')
+  }
+
+  const forceReset = () => {
+    if (confirm('Sab staff delete karke default admin banana hai?')) {
+      localStorage.removeItem('staff')
+      localStorage.removeItem('currentUser')
+      window.location.reload()
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-6">
+      <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-black text-gray-900 mb-2">💊 Pharmadesk</h1>
+          <p className="text-gray-500">Pharmacy Management System</p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-semibold text-gray-700">Phone Number</label>
+            <input
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="03001234567"
+              className="border-2 p-3 rounded-lg w-full mt-1 focus:border-blue-600 outline-none"
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-gray-700">Password</label>
+            <div className="relative">
+              <input
+                type={showPassword? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="border-2 p-3 rounded-lg w-full mt-1 focus:border-blue-600 outline-none pr-12"
+                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {showPassword? '🙈' : '👁️'}
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogin}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-blue-700 mt-6"
+          >
+            Login
+          </button>
+        </div>
+
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-xs text-gray-600 text-center">
+            <strong>Default Admin:</strong><br/>
+            Phone: 03001234567<br/>
+            Password: admin123
+          </p>
+        </div>
+
+        <button
+          onClick={forceReset}
+          className="w-full mt-4 text-xs text-red-600 hover:text-red-800 underline"
+        >
+          Login nahi ho raha? Click to Reset
+        </button>
+
+        {/* Debug - Console me F12 dabao */}
+        <details className="mt-4">
+          <summary className="text-xs text-gray-400 cursor-pointer">Debug: Staff List</summary>
+          <pre className="text-xs bg-gray-100 p-2 rounded mt-2 overflow-auto max-h-32">
+            {JSON.stringify(debug, null, 2)}
+          </pre>
+        </details>
+      </div>
+    </div>
+  )
+}

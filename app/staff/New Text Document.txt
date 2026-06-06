@@ -1,0 +1,159 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+
+export default function StaffPage() {
+  const [staff, setStaff] = useState<any[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ name: '', phone: '', role: 'Salesman', salary: '' })
+
+  useEffect(() => {
+    setStaff(DB.getStaff())
+  }, [])
+
+  const saveStaff = () => {
+    if(!form.name || !form.phone) {
+      alert('Name aur Phone zaruri hai')
+      return
+    }
+    const newStaff = { ...form, id: Date.now(), salary: Number(form.salary) || 0 }
+    const updated = [...staff, newStaff]
+    setStaff(updated)
+    DB.saveStaff(updated)
+    setForm({ name: '', phone: '', role: 'Salesman', salary: '' })
+    setShowForm(false)
+  }
+
+  const deleteStaff = (id: number) => {
+    if(confirm('Staff delete karna hai?')) {
+      const updated = staff.filter((s: any) => s.id !== id)
+      setStaff(updated)
+      DB.saveStaff(updated)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Staff Management</h1>
+          <div className="flex gap-3">
+            <Link href="/dashboard" className="text-blue-600 hover:underline font-semibold">← Dashboard</Link>
+            <button 
+              onClick={() => setShowForm(!showForm)}
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700"
+            >
+              {showForm ? 'Cancel' : '+ Add Staff'}
+            </button>
+          </div>
+        </div>
+
+        {showForm && (
+          <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+            <h2 className="text-xl font-bold mb-4">Add New Staff</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Full Name</label>
+                <input 
+                  value={form.name}
+                  onChange={e=>setForm({...form, name: e.target.value})}
+                  className="border p-2 rounded w-full" 
+                  placeholder="Ramesh Kumar"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone Number</label>
+                <input 
+                  value={form.phone}
+                  onChange={e=>setForm({...form, phone: e.target.value})}
+                  className="border p-2 rounded w-full" 
+                  placeholder="9876543210"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Role</label>
+                <select 
+                  value={form.role}
+                  onChange={e=>setForm({...form, role: e.target.value})}
+                  className="border p-2 rounded w-full"
+                >
+                  <option>Salesman</option>
+                  <option>Pharmacist</option>
+                  <option>Helper</option>
+                  <option>Manager</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Monthly Salary ₹</label>
+                <input 
+                  type="number"
+                  value={form.salary}
+                  onChange={e=>setForm({...form, salary: e.target.value})}
+                  className="border p-2 rounded w-full" 
+                  placeholder="15000"
+                />
+              </div>
+            </div>
+            <button 
+              onClick={saveStaff}
+              className="mt-4 bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700"
+            >
+              Save Staff
+            </button>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left p-3 font-semibold">Name</th>
+                  <th className="text-left p-3 font-semibold">Phone</th>
+                  <th className="text-left p-3 font-semibold">Role</th>
+                  <th className="text-left p-3 font-semibold">Salary</th>
+                  <th className="text-left p-3 font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staff.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center p-8 text-gray-500">
+                      Koi staff add nahi hai. Upar "Add Staff" button se add karo.
+                    </td>
+                  </tr>
+                ) : staff.map((s: any) => (
+                  <tr key={s.id} className="border-b hover:bg-gray-50">
+                    <td className="p-3 font-medium">{s.name}</td>
+                    <td className="p-3">{s.phone}</td>
+                    <td className="p-3">
+                      <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-sm">
+                        {s.role}
+                      </span>
+                    </td>
+                    <td className="p-3 font-semibold">₹{s.salary}</td>
+                    <td className="p-3">
+                      <button 
+                        onClick={() => deleteStaff(s.id)}
+                        className="text-red-600 hover:underline text-sm font-semibold"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="mt-6 bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <p className="text-sm text-orange-800">
+            <b>Total Staff:</b> {staff.length} | <b>Total Salary:</b> ₹{staff.reduce((sum: number, s: any) => sum + (s.salary || 0), 0)}/month
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

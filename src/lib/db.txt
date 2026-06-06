@@ -1,0 +1,42 @@
+import { db } from './firebase'
+import { ref, push, get, set, update, query, orderByChild } from 'firebase/database'
+
+export const getInventory = async () => {
+  const snapshot = await get(query(ref(db, 'inventory'), orderByChild('createdAt')))
+  if (!snapshot.exists()) return []
+  const data = snapshot.val()
+  return Object.keys(data).map(key => ({ id: key,...data[key] })).reverse()
+}
+
+export const addMedicine = async (data: any) => {
+  const newRef = push(ref(db, 'inventory'))
+  await set(newRef, {
+ ...data,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  })
+  return newRef.key
+}
+
+export const updateStock = async (id: string, newQty: number) => {
+  await update(ref(db, `inventory/${id}`), {
+    qty: newQty,
+    updatedAt: Date.now()
+  })
+}
+
+export const saveBill = async (billData: any) => {
+  const newRef = push(ref(db, 'bills'))
+  await set(newRef, {
+ ...billData,
+    createdAt: Date.now()
+  })
+  return newRef.key
+}
+
+export const getBills = async () => {
+  const snapshot = await get(query(ref(db, 'bills'), orderByChild('createdAt')))
+  if (!snapshot.exists()) return []
+  const data = snapshot.val()
+  return Object.keys(data).map(key => ({ id: key,...data[key] })).reverse()
+}

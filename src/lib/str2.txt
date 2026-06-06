@@ -1,0 +1,104 @@
+const isClient = typeof window !== 'undefined'
+
+const defaultShopInfo = {
+  name: 'Meri Pharmacy',
+  phone: '9876543210',
+  address: 'Main Bazaar, City'
+}
+
+const defaultUser = {
+  id: 1,
+  name: 'Admin',
+  phone: '03000000000',
+  password: 'admin123',
+  role: 'admin'
+}
+
+export const DB = {
+  // User / Login
+  login(phone: string, password: string) {
+    const staff = this.getStaff()
+    const user = staff.find((s: any) => s.phone === phone && s.password === password)
+    if(user) {
+      if(isClient) localStorage.setItem('currentUser', JSON.stringify(user))
+      return user
+    }
+    return null
+  },
+  
+  getCurrentUser() {
+    if(!isClient) return null
+    const user = localStorage.getItem('currentUser')
+    return user ? JSON.parse(user) : null
+  },
+  
+  logout() {
+    if(isClient) localStorage.removeItem('currentUser')
+  },
+
+  // Shop Info
+  getShopInfo() {
+    if(!isClient) return defaultShopInfo
+    const info = localStorage.getItem('shopInfo')
+    return info ? JSON.parse(info) : defaultShopInfo
+  },
+  
+  saveShopInfo(info: any) {
+    if(isClient) localStorage.setItem('shopInfo', JSON.stringify(info))
+  },
+
+  // Inventory
+  getInventory() {
+    if(!isClient) return []
+    const inv = localStorage.getItem('inventory')
+    return inv ? JSON.parse(inv) : []
+  },
+  
+  saveInventory(data: any[]) {
+    if(isClient) localStorage.setItem('inventory', JSON.stringify(data))
+  },
+
+  // Bills
+  getBills() {
+    if(!isClient) return []
+    const bills = localStorage.getItem('bills')
+    return bills ? JSON.parse(bills) : []
+  },
+  
+  saveBills(data: any[]) {
+    if(isClient) localStorage.setItem('bills', JSON.stringify(data))
+  },
+
+  // Staff
+  getStaff() {
+    if(!isClient) return []
+    const staff = localStorage.getItem('staff')
+    return staff ? JSON.parse(staff) : []
+  },
+  
+  saveStaff(data: any[]) {
+    if(isClient) localStorage.setItem('staff', JSON.stringify(data))
+  },
+
+  // Unassigned QR
+  getUnassignedQR() {
+    if(!isClient) return []
+    const qr = localStorage.getItem('unassignedQR')
+    return qr ? JSON.parse(qr) : []
+  },
+  
+  saveUnassignedQR(data: any[]) {
+    if(isClient) localStorage.setItem('unassignedQR', JSON.stringify(data))
+  },
+
+  // Customers - Khata system ke liye
+  getCustomers() {
+    if(!isClient) return []
+    const customers = localStorage.getItem('customers')
+    return customers ? JSON.parse(customers) : []
+  },
+  
+  saveCustomers(data: any[]) {
+    if(isClient) localStorage.setItem('customers', JSON.stringify(data))
+  }
+}

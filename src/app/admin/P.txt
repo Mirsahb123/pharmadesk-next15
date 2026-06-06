@@ -1,0 +1,635 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { mockMenuItems } from "@/lib/mockData";
+import type { MenuItem } from "@/types";
+import Link from "next/link";
+
+type StockItem = { id: string; name: string; weight?: string; quantity: number; price: number; date: string; time: string };
+type StaffMember = { id: string; name: string; cnic: string; phone: string; role: "Waiter" | "Sweeper" | "Chef" | "Cashier" | "Rider"; salary: number; advanceTaken: number; advances: { amount: number; date: string; reason: string }[]; joinDate: string };
+type Table = { id: number; number: number; status: "vacant" | "occupied" | "reserved"; currentOrder?: string; customers: number };
+type RefundRequest = { orderId: string; customerName: string; customerPhone: string; amount: number; paymentMethod: string; reason: string; status: "requested" | "approved" | "processed" | "completed" | "rejected"; requestedAt: string };
+type DeliveryArea = { id: string; city: string; village: string; area: string; subArea?: string; km: number };
+type Order = { id: string; customerName: string; customerPhone: string; items: any[]; subtotal: number; deliveryCharge: number; total: number; deliveryArea: DeliveryArea; fullAddress: string; paymentMethod: string; senderName: string; paymentScreenshot: string; status: string; createdAt: string };
+
+export default function AdminPage() {
+  const [activeView, setActiveView] = useState("dashboard");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [refunds, setRefunds] = useState<RefundRequest[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
+  const [kmRate, setKmRate] = useState(30);
+  const [minCharge, setMinCharge] = useState(100);
+  const [showAddStock, setShowAddStock] = useState(false);
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [showAddArea, setShowAddArea] = useState(false);
+  const [newStock, setNewStock] = useState({ name: "", weight: "", quantity: "", price: "" });
+  const [newStaff, setNewStaff] = useState({ name: "", cnic: "", phone: "", role: "Waiter", salary: "" });
+  const [newArea, setNewArea] = useState({ city: "", village: "", area: "", subArea: "", km: "" });
+
+  useEffect(() => {
+    loadData();
+    initTables();
+    setMenuItems(mockMenuItems);
+  }, []);
+
+  const loadData = () => {
+    setOrders(JSON.parse(localStorage.getItem('darbar_orders') || '[]'));
+    setStockItems(JSON.parse(localStorage.getItem('darbar_stock') || '[]'));
+    setStaff(JSON.parse(localStorage.getItem('darbar_staff') || '[]'));
+    setRefunds(JSON.parse(localStorage.getItem('darbar_refunds') || '[]'));
+    setDeliveryAreas(JSON.parse(localStorage.getItem('darbar_delivery_areas') || '[]'));
+    setKmRate(parseInt(localStorage.getItem('darbar_km_rate') || '30'));
+    setMinCharge(parseInt(localStorage.getItem('darbar_min_charge') || '100'));
+  };
+
+  const initTables = () => {
+    const defaultTables: Table[] = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, number: i + 1, status: "vacant", customers: 0 }));
+    setTables(JSON.parse(localStorage.getItem('darbar_tables') || JSON.stringify(defaultTables)));
+  };
+
+  const pendingOrders = orders.filter(o => o.status === 'pending').length;
+  const todaysRevenue = orders.filter(o => new Date(o.createdAt).toDateString() === new Date().toDateString() && o.status!== 'cancelled').reduce((sum, o) => sum + o.total, 0);
+  const activeMenuItems = menuItems.filter(m => m.isAvailable).length;
+  const vacantTables = tables.filter(t => t.status === 'vacant').length;
+
+  const handleAddStock = () => {
+    if (!newStock.name ||!newStock.quantity ||!newStock.price) return alert('Fill all fields');
+    const stock: StockItem = { id: Date.now().toString(), name: newStock.name, weight: newStock.weight || undefined, quantity: parseInt(newStock.quantity), price: parseInt(newStock.price), date: new Date().toISOString().split('T')[0], time: new Date().toLocaleTimeString() };
+    const updated = [...stockItems, stock];
+    setStockItems(updated);
+    localStorage.setItem('darbar_stock', JSON.stringify(updated));
+    setShowAddStock(false);
+    setNewStock({ name: "", weight: "", quantity: "", price: "" });
+  };
+
+  const handleAddStaff = () => {
+    if (!newStaff.name ||!newStaff.cnic ||!newStaff.phone ||!newStaff.salary) return alert('Fill all fields');
+    const member: StaffMember = { id: Date.now().toString(), name: newStaff.name, cnic: newStaff.cnic, phone: newStaff.phone, role: newStaff.role as any, salary: parseInt(newStaff.salary), advanceTaken: 0, advances: [], joinDate: new Date().toISOString() };
+    const updated = [...staff, member];
+    setStaff(updated);
+    localStorage.setItem('darbar_staff', JSON.stringify(updated));
+    setShowAddStaff(false);
+    setNewStaff({ name: "", cnic: "", phone: "", role: "Waiter", salary: "" });
+  };
+
+  const handleAddArea = () => {
+    if (!newArea.city ||!newArea.village ||!newArea.area ||!newArea.km) return alert('Fill all fields except Sub-Area');
+    const area: DeliveryArea = { id: Date.now().toString(), city: newArea.city, village: newArea.village, area: newArea.area, subArea: newArea.subArea || undefined, km: parseInt(newArea.km) };
+    const updated = [...deliveryAreas, area];
+    setDeliveryAreas(updated);
+    localStorage.setItem('darbar_delivery_areas', JSON.stringify(updated));
+    setShowAddArea(false);
+    setNewArea({ city: "", village: "", area: "", subArea: "", km: "" });
+  };
+
+  const handleDeleteArea = (id: string) => {
+    if (!confirm('Delete this area?')) return;
+    const updated = deliveryAreas.filter(a => a.id!== id);
+    setDeliveryAreas(updated);
+    localStorage.setItem('darbar_delivery_areas', JSON.stringify(updated));
+  };
+
+  const updateOrderStatus = (orderId: string, status: string) => {
+    const updated = orders.map(o => o.id === orderId? {...o, status: status as any } : o);
+    setOrders(updated);
+    localStorage.setItem('darbar_orders', JSON.stringify(updated));
+  };
+
+  const updateKmRate = (rate: number) => {
+    setKmRate(rate);
+    localStorage.setItem('darbar_km_rate', rate.toString());
+  };
+
+  const updateMinCharge = (charge: number) => {
+    setMinCharge(charge);
+    localStorage.setItem('darbar_min_charge', charge.toString());
+  };
+
+  const sendWhatsApp = (phone: string, name: string) => {
+    const msg = `Assalam o Alaikum ${name}! 👋\n\nDarbar Restaurant se special offer:\n🎉 20% OFF on all Karahi\n🚚 Free Delivery on orders above Rs. 1000\n\nOrder now: [Your Website Link]`;
+    window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const customers = orders.reduce((acc: any[], order) => {
+    const existing = acc.find(c => c.phone === order.customerPhone);
+    if (existing) {
+      existing.totalOrders += 1;
+      existing.totalSpent += order.total;
+      existing.lastOrder = order.createdAt;
+      existing.orders.push(order);
+    } else {
+      acc.push({ 
+        name: order.customerName, 
+        phone: order.customerPhone, 
+        totalOrders: 1, 
+        totalSpent: order.total, 
+        orders: [order], 
+        firstOrder: order.createdAt,
+        lastOrder: order.createdAt,
+        address: order.fullAddress,
+        area: `${order.deliveryArea?.city}, ${order.deliveryArea?.area}`
+      });
+    }
+    return acc;
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#0F0F0F] text-white">
+      <div className="bg-[#1A1A1A] border-b border-[#D4AF37]/20 p-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-[#D4AF37]">👑 Darbar Admin Panel</h1>
+          <Link href="/" className="text-[#D4AF37] hover:text-[#F4C430]">← Back to Site</Link>
+        </div>
+      </div>
+      
+      <div className="max-w-7xl mx-auto p-6">
+        {activeView === "dashboard" && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                <p className="text-gray-400 text-sm">Total Orders</p>
+                <p className="text-3xl font-bold text-white">{orders.length}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-red-500/20">
+                <p className="text-gray-400 text-sm">Pending Orders</p>
+                <p className="text-3xl font-bold text-red-400">{pendingOrders}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-green-500/20">
+                <p className="text-gray-400 text-sm">Today Revenue</p>
+                <p className="text-3xl font-bold text-green-400">Rs. {todaysRevenue}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                <p className="text-gray-400 text-sm">Total Customers</p>
+                <p className="text-3xl font-bold text-[#D4AF37]">{customers.length}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div onClick={() => setActiveView("orders")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📦</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Orders Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Customer details + Payment screenshot</p>
+                <p className="text-red-400 font-bold">{pendingOrders} Pending</p>
+              </div>
+
+              <div onClick={() => setActiveView("customers")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">👥</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Customers</h3>
+                <p className="text-gray-400 text-sm mb-3">Name, Phone, Address + Send WhatsApp</p>
+                <p className="text-[#D4AF37] font-bold">{customers.length} Customers</p>
+              </div>
+
+              <div onClick={() => setActiveView("areas")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📍</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Delivery Areas</h3>
+                <p className="text-gray-400 text-sm mb-3">Set delivery rate & add areas</p>
+                <p className="text-[#D4AF37] font-bold">{deliveryAreas.length} Areas</p>
+              </div>
+
+              <div onClick={() => setActiveView("stock")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📦</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Stock Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Track inventory</p>
+                <p className="text-[#D4AF37] font-bold">{stockItems.length} Items</p>
+              </div>
+
+              <div onClick={() => setActiveView("staff")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">👥</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Staff & Salary</h3>
+                <p className="text-gray-400 text-sm mb-3">Manage staff & advances</p>
+                <p className="text-[#D4AF37] font-bold">{staff.length} Staff</p>
+              </div>
+
+              <div onClick={() => setActiveView("tables")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">🪑</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Table Management</h3>
+                <p className="text-gray-400 text-sm mb-3">See vacant/occupied tables</p>
+                <p className="text-green-400 font-bold">{vacantTables} Vacant</p>
+              </div>
+
+              <div onClick={() => setActiveView("menu")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">🍽️</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Menu Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Add, Edit menu items</p>
+                <p className="text-[#D4AF37] font-bold">{menuItems.length} Items</p>
+              </div>
+
+              <div onClick={() => setActiveView("refunds")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">💰</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Refund Requests</h3>
+                <p className="text-gray-400 text-sm mb-3">Approve & process refunds</p>
+                <p className="text-yellow-400 font-bold">{refunds.filter(r=>r.status==='requested').length} Pending</p>
+              </div>
+            </div>
+          </>
+        )}
+{activeView!== "dashboard" && (
+          <button onClick={() => {setActiveView("dashboard"); loadData();}} className="text-[#D4AF37] mb-4 hover:text-[#F4C430]">← Back to Dashboard</button>
+        )}
+        
+        {activeView === "areas" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-[#D4AF37]">Delivery Areas Management</h2>
+              <button onClick={() => setShowAddArea(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg">+ Add Area</button>
+            </div>
+            <div className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20 mb-4">
+              <h3 className="text-[#D4AF37] font-bold mb-3">⚙️ Delivery Charges Settings</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-gray-400 text-sm">Rate per KM (Rs.)</label>
+                  <input type="number" value={kmRate} onChange={(e) => updateKmRate(parseInt(e.target.value) || 0)} className="w-full bg-[#0F0F0F] text-white p-2 rounded mt-1 border border-[#D4AF37]/30" />
+                </div>
+                <div>
+                  <label className="text-gray-400 text-sm">Minimum Charge (Rs.)</label>
+                  <input type="number" value={minCharge} onChange={(e) => updateMinCharge(parseInt(e.target.value) || 0)} className="w-full bg-[#0F0F0F] text-white p-2 rounded mt-1 border border-[#D4AF37]/30" />
+                </div>
+              </div>
+              <p className="text-green-400 text-sm mt-3">✅ Formula: {kmRate} Rs/km (Minimum {minCharge} Rs) - Auto saves</p>
+            </div>
+            <div className="bg-[#1A1A1A] rounded-lg overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-[#0F0F0F] border-b border-[#D4AF37]/20">
+                  <tr>
+                    <th className="p-4 text-[#D4AF37]">City</th>
+                    <th className="p-4 text-[#D4AF37]">Village/Town</th>
+                    <th className="p-4 text-[#D4AF37]">Area</th>
+                    <th className="p-4 text-[#D4AF37]">Sub-Area</th>
+                    <th className="p-4 text-[#D4AF37]">Distance</th>
+                    <th className="p-4 text-[#D4AF37]">Charges</th>
+                    <th className="p-4 text-[#D4AF37]">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveryAreas.length === 0? (
+                    <tr><td colSpan={7} className="p-4 text-center text-gray-400">No areas added yet</td></tr>
+                  ) : deliveryAreas.map(area => (
+                    <tr key={area.id} className="border-b border-gray-800">
+                      <td className="p-4 text-white">{area.city}</td>
+                      <td className="p-4 text-white">{area.village}</td>
+                      <td className="p-4 text-white">{area.area}</td>
+                      <td className="p-4 text-gray-400">{area.subArea || '-'}</td>
+                      <td className="p-4 text-white">{area.km} km</td>
+                      <td className="p-4 text-[#D4AF37] font-bold">Rs. {Math.max(minCharge, area.km * kmRate)}</td>
+                      <td className="p-4"><button onClick={() => handleDeleteArea(area.id)} className="bg-red-600 text-white px-3 py-1 rounded text-sm">Delete</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {showAddArea && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                <div className="bg-[#1A1A1A] p-6 rounded-lg w-full max-w-md">
+                  <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Add Delivery Area</h3>
+                  <input type="text" placeholder="City *" value={newArea.city} onChange={(e) => setNewArea({...newArea, city: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="Village/Town *" value={newArea.village} onChange={(e) => setNewArea({...newArea, village: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="Area *" value={newArea.area} onChange={(e) => setNewArea({...newArea, area: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="Sub-Area (Optional)" value={newArea.subArea} onChange={(e) => setNewArea({...newArea, subArea: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="number" placeholder="Distance in KM *" value={newArea.km} onChange={(e) => setNewArea({...newArea, km: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <p className="text-gray-400 text-xs mb-3">Charges: Rs. {kmRate}/km (Min Rs. {minCharge})</p>
+                  <div className="flex gap-3">
+                    <button onClick={() => setShowAddArea(false)} className="flex-1 bg-gray-600 py-2 rounded">Cancel</button>
+                    <button onClick={handleAddArea} className="flex-1 bg-green-600 py-2 rounded">Add Area</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "orders" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Orders Management - Customer Checkout Details</h2>
+            <div className="space-y-4">
+              {orders.length === 0? (
+                <p className="text-gray-400 text-center py-8 bg-[#1A1A1A] rounded-lg">No orders yet - Jab customer checkout karega to yahan detail aayegi</p>
+              ) : orders.map(order => (
+                <div key={order.id} className="bg-[#1A1A1A] p-5 rounded-lg border border-[#D4AF37]/20">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <p className="text-[#D4AF37] font-bold text-lg">Order #{order.id}</p>
+                        <span className={`text-xs px-3 py-1 rounded ${order.status === 'pending'? 'bg-yellow-600' : order.status === 'preparing'? 'bg-blue-600' : order.status === 'ready'? 'bg-purple-600' : order.status === 'completed'? 'bg-green-600' : 'bg-red-600'}`}>
+                          {order.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-400">{new Date(order.createdAt).toLocaleString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-bold text-[#D4AF37]">Rs. {order.total}</p>
+                      <p className="text-xs text-gray-400">Subtotal: Rs. {order.subtotal} + Delivery: Rs. {order.deliveryCharge}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div className="bg-[#0F0F0F] p-4 rounded border border-green-500/30">
+                      <p className="text-[#D4AF37] font-bold text-sm mb-3">👤 CUSTOMER INFO</p>
+                      <p className="text-white text-lg font-bold mb-1">{order.customerName}</p>
+                      <p className="text-white mb-1"><span className="text-gray-400">📞 WhatsApp:</span> {order.customerPhone}</p>
+                      <button onClick={() => sendWhatsApp(order.customerPhone, order.customerName)} className="mt-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm w-full">
+                        📱 Send WhatsApp Message
+                      </button>
+                    </div>
+                    <div className="bg-[#0F0F0F] p-4 rounded border border-blue-500/30">
+                      <p className="text-[#D4AF37] font-bold text-sm mb-3">📍 DELIVERY ADDRESS</p>
+                      <p className="text-white text-sm">{order.deliveryArea?.city}, {order.deliveryArea?.village}</p>
+                      <p className="text-white text-sm">{order.deliveryArea?.area} {order.deliveryArea?.subArea && `, ${order.deliveryArea.subArea}`}</p>
+                      <p className="text-gray-400 text-sm">📏 Distance: {order.deliveryArea?.km} KM</p>
+                      <p className="text-gray-300 text-sm mt-2">🏠 {order.fullAddress}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="border-t border-gray-700 pt-3 mb-3">
+                    <p className="text-sm font-bold text-[#D4AF37] mb-2">🛒 ORDER ITEMS ({order.items?.length} items):</p>
+                    {order.items?.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm text-gray-300 mb-1 bg-[#0F0F0F] p-2 rounded">
+                        <span>{item.menuItem.name} ({item.selectedWeight.weight}) x {item.quantity}</span>
+                        <span className="text-[#D4AF37] font-bold">Rs. {item.selectedWeight.price * item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-t border-gray-700 pt-3">
+                    <p className="text-sm font-bold text-[#D4AF37] mb-2">💳 PAYMENT DETAILS:</p>
+                    <div className="bg-[#0F0F0F] p-3 rounded mb-3">
+                      <p className="text-sm text-gray-300">Method: <span className="font-bold text-white">{order.paymentMethod?.toUpperCase()}</span></p>
+                      <p className="text-sm text-gray-300">Sender Account Name: <span className="font-bold text-white">{order.senderName}</span></p>
+                    </div>
+                    {order.paymentScreenshot && (
+                      <div>
+                        <p className="text-sm text-gray-400 mb-2">Payment Screenshot:</p>
+                        <img src={order.paymentScreenshot} alt="Payment" className="w-full max-w-md h-auto object-contain rounded border border-[#D4AF37]/30 bg-black" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 mt-4">
+                    {order.status === 'pending' && <button onClick={() => updateOrderStatus(order.id, 'preparing')} className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm font-bold">✅ Accept Order</button>}
+                    {order.status === 'preparing' && <button onClick={() => updateOrderStatus(order.id, 'ready')} className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm font-bold">📦 Mark Ready</button>}
+                    {order.status === 'ready' && <button onClick={() => updateOrderStatus(order.id, 'completed')} className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm font-bold">✓ Complete</button>}
+                    <button onClick={() => updateOrderStatus(order.id, 'cancelled')} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm font-bold">✕ Cancel</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeView === "customers" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Customers Database - WhatsApp Marketing</h2>
+            {customers.length === 0? (
+              <p className="text-gray-400 text-center py-8 bg-[#1A1A1A] rounded-lg">No customers yet - Jab koi checkout karega to yahan show hoga</p>
+            ) : (
+              <>
+                <div className="bg-[#1A1A1A] rounded-lg overflow-hidden mb-6">
+                  <table className="w-full text-left">
+                    <thead className="bg-[#0F0F0F] border-b border-[#D4AF37]/20">
+                      <tr>
+                        <th className="p-4 text-[#D4AF37]">Customer Name</th>
+                        <th className="p-4 text-[#D4AF37]">WhatsApp No.</th>
+                        <th className="p-4 text-[#D4AF37]">Address</th>
+                        <th className="p-4 text-[#D4AF37]">Orders</th>
+                        <th className="p-4 text-[#D4AF37]">Total Spent</th>
+                        <th className="p-4 text-[#D4AF37]">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customers.map((customer, idx) => (
+                        <tr key={idx} className="border-b border-gray-800">
+                          <td className="p-4 text-white font-bold">{customer.name}</td>
+                          <td className="p-4 text-gray-300">{customer.phone}</td>
+                          <td className="p-4 text-gray-300 text-sm">{customer.area}</td>
+                          <td className="p-4 text-white">{customer.totalOrders}</td>
+                          <td className="p-4 text-[#D4AF37] font-bold">Rs. {customer.totalSpent}</td>
+                          <td className="p-4">
+                            <button onClick={() => sendWhatsApp(customer.phone, customer.name)} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm">
+                              📱 WhatsApp
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Customer Order History & Details</h3>
+                <div className="space-y-3">
+                  {customers.map((customer, idx) => (
+                    <div key={idx} className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <p className="text-white font-bold text-lg">{customer.name}</p>
+                          <p className="text-gray-400 text-sm">📞 {customer.phone}</p>
+                          <p className="text-gray-400 text-sm">📍 {customer.area}</p>
+                          <p className="text-gray-400 text-sm">🏠 {customer.address}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[#D4AF37] font-bold text-xl">Rs. {customer.totalSpent}</p>
+                          <p className="text-gray-400 text-sm">{customer.totalOrders} Orders</p>
+                          <p className="text-gray-500 text-xs">First: {new Date(customer.firstOrder).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div className="bg-[#0F0F0F] p-3 rounded">
+                        <p className="text-[#D4AF37] text-sm font-bold mb-2">Order History:</p>
+                        {customer.orders.map((order: any) => (
+                          <div key={order.id} className="flex justify-between text-sm mb-2 pb-2 border-b border-gray-800">
+                            <div>
+                              <span className="text-gray-400">#{order.id} - {new Date(order.createdAt).toLocaleDateString()}</span>
+                              <p className="text-gray-300 text-xs">Items: {order.items?.length} | {order.status}</p>
+                            </div>
+                            <span className="text-white font-bold">Rs. {order.total}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => sendWhatsApp(customer.phone, customer.name)} className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-bold">
+                        📱 Send Deal/Discount to {customer.name}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeView === "stock" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-[#D4AF37]">Stock Management</h2>
+              <button onClick={() => setShowAddStock(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg">+ Add Stock</button>
+            </div>
+            <div className="bg-[#1A1A1A] rounded-lg overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-[#0F0F0F] border-b border-[#D4AF37]/20">
+                  <tr>
+                    <th className="p-4 text-[#D4AF37]">Item Name</th>
+                    <th className="p-4 text-[#D4AF37]">Weight</th>
+                    <th className="p-4 text-[#D4AF37]">Qty</th>
+                    <th className="p-4 text-[#D4AF37]">Price</th>
+                    <th className="p-4 text-[#D4AF37]">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockItems.length === 0? (
+                    <tr><td colSpan={5} className="p-4 text-center text-gray-400">No stock items</td></tr>
+                  ) : stockItems.map(item => (
+                    <tr key={item.id} className="border-b border-gray-800">
+                      <td className="p-4 text-white">{item.name}</td>
+                      <td className="p-4 text-white">{item.weight || '-'}</td>
+                      <td className="p-4 text-white">{item.quantity}</td>
+                      <td className="p-4 text-[#D4AF37]">Rs. {item.price}</td>
+                      <td className="p-4 text-gray-400 text-sm">{item.date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {showAddStock && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                <div className="bg-[#1A1A1A] p-6 rounded-lg w-full max-w-md">
+                  <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Add Stock Item</h3>
+                  <input type="text" placeholder="Item Name *" value={newStock.name} onChange={(e) => setNewStock({...newStock, name: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="Weight (Optional)" value={newStock.weight} onChange={(e) => setNewStock({...newStock, weight: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="number" placeholder="Quantity *" value={newStock.quantity} onChange={(e) => setNewStock({...newStock, quantity: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="number" placeholder="Price *" value={newStock.price} onChange={(e) => setNewStock({...newStock, price: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <div className="flex gap-3">
+                    <button onClick={() => setShowAddStock(false)} className="flex-1 bg-gray-600 py-2 rounded">Cancel</button>
+                    <button onClick={handleAddStock} className="flex-1 bg-green-600 py-2 rounded">Add Stock</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "staff" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-[#D4AF37]">Staff Management</h2>
+              <button onClick={() => setShowAddStaff(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg">+ Add Staff</button>
+            </div>
+            <div className="bg-[#1A1A1A] rounded-lg overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-[#0F0F0F] border-b border-[#D4AF37]/20">
+                  <tr>
+                    <th className="p-4 text-[#D4AF37]">Name</th>
+                    <th className="p-4 text-[#D4AF37]">Role</th>
+                    <th className="p-4 text-[#D4AF37]">Phone</th>
+                    <th className="p-4 text-[#D4AF37]">Salary</th>
+                    <th className="p-4 text-[#D4AF37]">Advance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staff.length === 0? (
+                    <tr><td colSpan={5} className="p-4 text-center text-gray-400">No staff added</td></tr>
+                  ) : staff.map(member => (
+                    <tr key={member.id} className="border-b border-gray-800">
+                      <td className="p-4 text-white">{member.name}</td>
+                      <td className="p-4 text-white">{member.role}</td>
+                      <td className="p-4 text-white">{member.phone}</td>
+                      <td className="p-4 text-[#D4AF37]">Rs. {member.salary}</td>
+                      <td className="p-4 text-red-400">Rs. {member.advanceTaken}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {showAddStaff && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                <div className="bg-[#1A1A1A] p-6 rounded-lg w-full max-w-md">
+                  <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Add Staff Member</h3>
+                  <input type="text" placeholder="Name *" value={newStaff.name} onChange={(e) => setNewStaff({...newStaff, name: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="CNIC *" value={newStaff.cnic} onChange={(e) => setNewStaff({...newStaff, cnic: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <input type="text" placeholder="Phone *" value={newStaff.phone} onChange={(e) => setNewStaff({...newStaff, phone: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <select value={newStaff.role} onChange={(e) => setNewStaff({...newStaff, role: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30">
+                    <option value="Waiter">Waiter</option>
+                    <option value="Sweeper">Sweeper</option>
+                    <option value="Chef">Chef</option>
+                    <option value="Cashier">Cashier</option>
+                    <option value="Rider">Rider</option>
+                  </select>
+                  <input type="number" placeholder="Monthly Salary *" value={newStaff.salary} onChange={(e) => setNewStaff({...newStaff, salary: e.target.value})} className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30" />
+                  <div className="flex gap-3">
+                    <button onClick={() => setShowAddStaff(false)} className="flex-1 bg-gray-600 py-2 rounded">Cancel</button>
+                    <button onClick={handleAddStaff} className="flex-1 bg-green-600 py-2 rounded">Add Staff</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "tables" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Table Management</h2>
+            <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {tables.map(table => (
+                <div key={table.id} className={`p-4 rounded-lg border-2 text-center ${table.status === 'vacant'? 'bg-green-900/20 border-green-500' : table.status === 'occupied'? 'bg-red-900/20 border-red-500' : 'bg-yellow-900/20 border-yellow-500'}`}>
+                  <p className="text-2xl font-bold text-white">Table {table.number}</p>
+                  <p className={`text-sm font-bold mt-2 ${table.status === 'vacant'? 'text-green-400' : table.status === 'occupied'? 'text-red-400' : 'text-yellow-400'}`}>
+                    {table.status.toUpperCase()}
+                  </p>
+                  {table.status === 'occupied' && <p className="text-xs text-gray-400 mt-1">{table.customers} Customers</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeView === "menu" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Menu Management</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {menuItems.map(item => (
+                <div key={item.id} className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                  <img src={item.image} alt={item.name} className="w-full h-40 object-cover rounded mb-3" />
+                  <h3 className="text-lg font-bold text-white">{item.name}</h3>
+                  <p className="text-gray-400 text-sm mb-2">{item.category}</p>
+                  <p className="text-[#D4AF37] font-bold">Rs. {item.weightPrices[0]?.price}</p>
+                  <p className={`text-sm mt-2 ${item.isAvailable? 'text-green-400' : 'text-red-400'}`}>
+                    {item.isAvailable? '✅ Available' : '❌ Unavailable'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeView === "refunds" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Refund Requests</h2>
+            {refunds.length === 0? (
+              <p className="text-gray-400 text-center py-8 bg-[#1A1A1A] rounded-lg">No refund requests</p>
+            ) : (
+              <div className="space-y-4">
+                {refunds.map(refund => (
+                  <div key={refund.orderId} className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[#D4AF37] font-bold">Order #{refund.orderId}</p>
+                        <p className="text-white">{refund.customerName} - {refund.customerPhone}</p>
+                        <p className="text-gray-400 text-sm mt-2">Reason: {refund.reason}</p>
+                        <p className="text-gray-400 text-sm">Requested: {new Date(refund.requestedAt).toLocaleString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-red-400">Rs. {refund.amount}</p>
+                        <span className={`text-xs px-2 py-1 rounded ${refund.status === 'requested'? 'bg-yellow-600' : refund.status === 'approved'? 'bg-blue-600' : refund.status === 'completed'? 'bg-green-600' : 'bg-red-600'}`}>
+                          {refund.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

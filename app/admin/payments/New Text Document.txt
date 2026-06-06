@@ -1,0 +1,400 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { toast, Toaster } from 'sonner'
+import {
+  CreditCard, Check, X, Eye, Clock,
+  User, Phone, Calendar, Filter, Search, Package, Hash
+} from 'lucide-react'
+
+export default function AdminPaymentsPage() {
+  const [payments, setPayments] = useState<any[]>([])
+  const [bills, setBills] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedPayment, setSelectedPayment] = useState<any>(null)
+  const [showModal, setShowModal] = useState(false)
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = () => {
+    const allPayments = DB.getPayments() || []
+    const allBills = DB.getBills() || []
+    const allCustomers = DB.getCustomers() || []
+
+    // Har payment me customer + bill info inject karo
+    const enrichedPayments = allPayments.map((payment: any) => {
+      const bill = allBills.find((b: any) => b.id === payment.billId)
+
+      // 3 tareeke se customer dhundo
+      let customer = allCustomers.find((c: any) => c.id === bill?.customerId)
+      if (!customer) customer = allCustomers.find((c: any) => c.phone === bill?.customerPhone)
+      if (!customer) customer = allCustomers.find((c: any) => c.id === payment.customerId)
+      if (!customer) customer = allCustomers.find((c: any) => c.phone === payment.customerPhone)
+
+      return {
+      ...payment,
+        customerName: customer?.name || payment.senderName || payment.customerName || 'Unknown',
+        customerPhone: customer?.phone || bill?.customerPhone || payment.customerPhone || '',
+        billNo: bill?.billNo || bill?.id?.slice(-6) || payment.billId?.slice(-6) || 'N/A',
+        billTotal: bill?.total || 0
+      }
+    })
+
+    console.log('Enriched Payments:', enrichedPayments)
+    setPayments(enrichedPayments)
+    setBills(allBills)
+    setCustomers(allCustomers)
+  }
+
+  const approvePayment = (paymentId: string) => {
+    const allPayments = DB.getPayments()
+    const payment = allPayments.find((p: any) => p.id === paymentId)
+    if (!payment) return
+
+    const updatedPayments = allPayments.map((p: any) =>
+      p.id === paymentId? {...p, status: 'approved', approvedAt: new Date().toISOString() } : p
+    )
+    DB.savePayments(updatedPayments)
+
+    const allBills = DB.getBills()
+    const bill = allBills.find((b: any) => b.id === payment.billId)
+    if (bill) {
+      const totalPaid = updatedPayments
+      .filter((p: any) => p.billId === bill.id && p.status === 'approved')
+      .reduce((sum: number, p: any) => sum + p.amount, 0)
+
+      const updatedBills = allBills.map((b: any) =>
+        b.id === bill.id
+        ? {
+            ...b,
+              paidAmount: totalPaid,
+              balance: b.total - totalPaid,
+              status: totalPaid >= b.total? 'paid' : 'pending'
+            }
+          : b
+      )
+      DB.saveBills(updatedBills)
+    }
+
+    loadData()
+    setShowModal(false)
+    toast.success('Payment approved! Customer balance updated.', { icon: '✅' })
+  }
+
+  const rejectPayment = (paymentId: string) => {
+    const allPayments = DB.getPayments()
+    const updatedPayments = allPayments.map((p: any) =>
+      p.id === paymentId? {...p, status: 'rejected', rejectedAt: new Date().toISOString() } : p
+    )
+    DB.savePayments(updatedPayments)
+    loadData()
+    setShowModal(false)
+    toast.error('Payment rejected!', { icon: '❌' })
+  }
+
+  const filteredPayments = payments.filter((p: any) => {
+    const matchStatus = filterStatus === 'all' || p.status === filterStatus
+    const matchSearch =!searchTerm ||
+      p.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.senderName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.paymentMethod?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.customerPhone?.includes(searchTerm) ||
+      p.billNo?.toLowerCase().includes(searchTerm.toLowerCase())
+    return matchStatus && matchSearch
+  })
+
+  const stats = {
+    pending: payments.filter((p: any) => p.status === 'pending').length,
+    approved: payments.filter((p: any) => p.status === 'approved').length,
+    rejected: payments.filter((p: any) => p.status === 'rejected').length,
+    totalAmount: payments.filter((p: any) => p.status === 'approved').reduce((sum: number, p: any) => sum + p.amount, 0)
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-4 md:p-6">
+      <Toaster position="top-center" richColors />
+      <div className="max-w-7xl mx-auto">
+
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white/70 backdrop-blur-xl p-6 md:p-8 rounded-3xl shadow-2xl border border-white/50 mb-6"
+        >
+          <h1 className="text-3xl md:text-4xl font-black bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-3">
+            <CreditCard className="w-8 h-8 text-blue-600" />
+            Payment Approvals
+          </h1>
+          <p className="text-gray-600 mt-2">Review and approve customer payments</p>
+        </motion.div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            className="bg-gradient-to-br from-yellow-400 to-orange-500 p-6 rounded-2xl shadow-xl text-white"
+          >
+            <Clock className="w-8 h-8 mb-2" />
+            <p className="text-sm opacity-90">Pending</p>
+            <p className="text-3xl font-black">{stats.pending}</p>
+          </motion.div>
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            className="bg-gradient-to-br from-green-400 to-emerald-500 p-6 rounded-2xl shadow-xl text-white"
+          >
+            <Check className="w-8 h-8 mb-2" />
+            <p className="text-sm opacity-90">Approved</p>
+            <p className="text-3xl font-black">{stats.approved}</p>
+          </motion.div>
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            className="bg-gradient-to-br from-red-400 to-pink-500 p-6 rounded-2xl shadow-xl text-white"
+          >
+            <X className="w-8 h-8 mb-2" />
+            <p className="text-sm opacity-90">Rejected</p>
+            <p className="text-3xl font-black">{stats.rejected}</p>
+          </motion.div>
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            className="bg-gradient-to-br from-blue-400 to-purple-500 p-6 rounded-2xl shadow-xl text-white"
+          >
+            <CreditCard className="w-8 h-8 mb-2" />
+            <p className="text-sm opacity-90">Total Approved</p>
+            <p className="text-3xl font-black">Rs. {stats.totalAmount.toFixed(0)}</p>
+            <p className="text-xs opacity-75 mt-1">{stats.approved} payments received</p>
+          </motion.div>
+        </div>
+
+        <div className="bg-white/70 backdrop-blur-xl p-6 rounded-3xl shadow-2xl border border-white/50 mb-6">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="🔍 Search by customer name, phone, bill no..."
+                className="border-2 border-gray-200 pl-12 pr-4 py-4 rounded-2xl w-full focus:border-blue-500 transition-all outline-none"
+              />
+            </div>
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+              className="border-2 border-gray-200 p-4 rounded-2xl focus:border-blue-500 transition-all outline-none"
+            >
+              <option value="all">All Payments</option>
+              <option value="pending">⏳ Pending</option>
+              <option value="approved">✅ Approved</option>
+              <option value="rejected">❌ Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="bg-white/70 backdrop-blur-xl p-6 md:p-8 rounded-3xl shadow-2xl border border-white/50">
+          <h3 className="text-2xl font-black mb-6 text-gray-800">
+            Payments ({filteredPayments.length})
+          </h3>
+
+          {filteredPayments.length === 0? (
+            <div className="text-center py-16">
+              <p className="text-8xl mb-4">💳</p>
+              <p className="text-gray-500 font-medium text-lg">No payments found</p>
+              {searchTerm && <p className="text-gray-400 text-sm mt-2">Try different search term</p>}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredPayments.map((payment: any) => (
+                <motion.div
+                  key={payment.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="border-2 border-gray-100 p-5 rounded-2xl hover:border-blue-300 transition-all bg-white/50"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-3xl">{payment.paymentMethod === 'JazzCash'? '📱' : payment.paymentMethod === 'EasyPaisa'? '💳' : '🏦'}</span>
+                        <div>
+                          <p className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                            <User className="w-4 h-4 text-blue-500" />
+                            {payment.customerName}
+                          </p>
+                          <p className="text-xs text-gray-600 flex items-center gap-2">
+                            <Phone className="w-3 h-3" />
+                            {payment.customerPhone || 'N/A'} • {payment.paymentMethod}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                        <div className="bg-green-50 p-3 rounded-xl">
+                          <p className="text-gray-500 text-xs mb-1">Paid Amount</p>
+                          <p className="font-bold text-green-600 text-lg">Rs. {payment.amount}</p>
+                        </div>
+                        <div className="bg-blue-50 p-3 rounded-xl">
+                          <p className="text-gray-500 text-xs mb-1 flex items-center gap-1">
+                            <Hash className="w-3 h-3" /> Bill No
+                          </p>
+                          <p className="font-bold text-gray-800">#{payment.billNo}</p>
+                        </div>
+                        <div className="bg-purple-50 p-3 rounded-xl">
+                          <p className="text-gray-500 text-xs mb-1">Bill Total</p>
+                          <p className="font-bold text-gray-800">Rs. {payment.billTotal}</p>
+                        </div>
+                        <div className="bg-orange-50 p-3 rounded-xl">
+                          <p className="text-gray-500 text-xs mb-1 flex items-center gap-1">
+                            <Calendar className="w-3 h-3" /> Date
+                          </p>
+                          <p className="font-semibold text-gray-700">{new Date(payment.date).toLocaleDateString()}</p>
+                        </div>
+                        <div className="bg-pink-50 p-3 rounded-xl">
+                          <p className="text-gray-500 text-xs mb-1">Sender</p>
+                          <p className="font-semibold text-gray-700">{payment.senderName}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 md:items-end">
+                      <span className={`px-4 py-2 rounded-xl text-xs font-bold ${
+                        payment.status === 'approved'? 'bg-green-100 text-green-700' :
+                        payment.status === 'rejected'? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {payment.status === 'approved'? '✅ Approved' :
+                         payment.status === 'rejected'? '❌ Rejected' :
+                         '⏳ Pending'}
+                      </span>
+
+                      <div className="flex gap-2">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => { setSelectedPayment(payment); setShowModal(true); }}
+                          className="bg-blue-500 text-white px-4 py-2 rounded-xl font-bold hover:bg-blue-600 transition-all flex items-center gap-2"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View
+                        </motion.button>
+
+                        {payment.status === 'pending' && (
+                          <>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => approvePayment(payment.id)}
+                              className="bg-green-500 text-white px-4 py-2 rounded-xl font-bold hover:bg-green-600 transition-all"
+                            >
+                              <Check className="w-4 h-4" />
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => rejectPayment(payment.id)}
+                              className="bg-red-500 text-white px-4 py-2 rounded-xl font-bold hover:bg-red-600 transition-all"
+                            >
+                              <X className="w-4 h-4" />
+                            </motion.button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showModal && selectedPayment && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setShowModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-black text-gray-800">Payment Details</h3>
+                <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Customer</p>
+                    <p className="font-bold text-gray-800">{selectedPayment.customerName}</p>
+                    <p className="text-xs text-gray-600">{selectedPayment.customerPhone}</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Amount</p>
+                    <p className="font-bold text-green-600 text-xl">Rs. {selectedPayment.amount}</p>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Method</p>
+                    <p className="font-bold text-gray-800">{selectedPayment.paymentMethod}</p>
+                  </div>
+                  <div className="bg-orange-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Sender</p>
+                    <p className="font-bold text-gray-800">{selectedPayment.senderName}</p>
+                  </div>
+                  <div className="bg-pink-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Bill No</p>
+                    <p className="font-bold text-gray-800">#{selectedPayment.billNo}</p>
+                  </div>
+                  <div className="bg-indigo-50 p-4 rounded-2xl">
+                    <p className="text-xs text-gray-600 mb-1">Bill Total</p>
+                    <p className="font-bold text-gray-800">Rs. {selectedPayment.billTotal}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-sm font-bold text-gray-700 mb-3">Payment Screenshot:</p>
+                <img
+                  src={selectedPayment.screenshot}
+                  alt="Payment"
+                  className="w-full rounded-2xl border-2 border-gray-200"
+                />
+              </div>
+
+              {selectedPayment.status === 'pending' && (
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => approvePayment(selectedPayment.id)}
+                    className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white py-4 rounded-2xl hover:shadow-xl transition-all font-bold flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-5 h-5" />
+                    Approve Payment
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => rejectPayment(selectedPayment.id)}
+                    className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white py-4 rounded-2xl hover:shadow-xl transition-all font-bold flex items-center justify-center gap-2"
+                  >
+                    <X className="w-5 h-5" />
+                    Reject Payment
+                  </motion.button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}

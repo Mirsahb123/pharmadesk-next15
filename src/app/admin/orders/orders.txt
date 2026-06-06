@@ -1,0 +1,139 @@
+"use client";
+import { useState, useEffect } from "react";
+import { localDB } from "@/lib/localDB";
+
+type Order = {
+  id: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: any[];
+  total: number;
+  status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
+  createdAt: string;
+};
+
+export default function AdminOrders() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [filter, setFilter] = useState<string>("all");
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  const loadOrders = () => {
+    const data = localDB.getOrders();
+    setOrders(data.reverse()); // Latest pehle
+  };
+
+  const updateStatus = (id: string, status: Order['status']) => {
+    localDB.updateOrderStatus(id, status);
+    loadOrders();
+    alert(`Order ${status} kar diya!`);
+  };
+
+  const filteredOrders = filter === "all" 
+    ? orders 
+    : orders.filter(o => o.status === filter);
+
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'pending': return 'bg-yellow-500';
+      case 'preparing': return 'bg-blue-500';
+      case 'delivered': return 'bg-green-500';
+      case 'cancelled': return 'bg-red-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FAF8F0] p-8">
+      <h1 className="text-4xl font-bold text-[#7B1818] mb-6">Admin - Orders Management</h1>
+
+      {/* Filter Buttons */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {['all', 'pending', 'preparing', 'delivered', 'cancelled'].map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-4 py-2 rounded-lg font-bold ${
+              filter === f 
+                ? 'bg-[#7B1818] text-white' 
+                : 'bg-white text-gray-700 border'
+            }`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)} 
+            {f === 'all' ? ` (${orders.length})` : ` (${orders.filter(o => o.status === f).length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Orders List */}
+      {filteredOrders.length === 0? (
+        <div className="bg-white p-12 rounded-lg text-center">
+          <p className="text-gray-500 text-xl">Koi order nahi hai</p>
+        </div>
+      ) : (
+        filteredOrders.map((order) => (
+          <div key={order.id} className="bg-white p-6 rounded-lg shadow-md mb-4 border-l-4 border-[#D4AF37]">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold">Order #{order.id.slice(0, 8)}</h3>
+                <p className="text-gray-600">{new Date(order.createdAt).toLocaleString('en-IN')}</p>
+              </div>
+              <span className={`${getStatusColor(order.status)} text-white px-4 py-2 rounded-full font-bold`}>
+                {order.status.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <p className="text-sm text-gray-500">Customer</p>
+                <p className="font-bold">{order.customerName}</p>
+                <p>{order.phone}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Address</p>
+                <p>{order.address}</p>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 mb-4">
+              <p className="font-bold mb-2">Items:</p>
+              {order.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-sm py-1">
+                  <span>{item.menuItem.name} x {item.quantity} ({item.selectedWeight.weight})</span>
+                  <span>Rs. {item.selectedWeight.price * item.quantity}</span>
+                </div>
+              ))}
+              <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t">
+                <span>Total:</span>
+                <span className="text-[#7B1818]">Rs. {order.total}</span>
+              </div>
+            </div>
+
+            {/* Status Update Buttons */}
+            {order.status === 'pending' && (
+              <div className="flex gap-2">
+                <button onClick={() => updateStatus(order.id, 'preparing')}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded font-bold">
+                  Accept & Prepare
+                </button>
+                <button onClick={() => updateStatus(order.id, 'cancelled')}
+                  className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded font-bold">
+                  Cancel Order
+                </button>
+              </div>
+            )}
+            {order.status === 'preparing' && (
+              <button onClick={() => updateStatus(order.id, 'delivered')}
+                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded font-bold">
+                Mark as Delivered
+              </button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}

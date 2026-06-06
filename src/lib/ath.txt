@@ -1,0 +1,98 @@
+// lib/auth.ts
+export type Shop = {
+  id: string
+  name: string
+  cnic: string
+  password: string
+  ownerName: string
+  phone: string
+  logo?: string
+  theme?: string
+  plan: 'trial' | 'active' | 'blocked'
+  createdAt: string
+  trialEndsAt: string
+}
+
+export type User = {
+  cnic: string
+  role: 'superadmin' | 'shop'
+  shopId?: string
+  name: string
+}
+
+export const Auth = {
+  getCurrentUser(): User | null {
+    if (typeof window === 'undefined') return null
+    const user = localStorage.getItem('currentUser')
+    return user? JSON.parse(user) : null
+  },
+
+  logout() {
+    localStorage.removeItem('currentUser')
+  },
+
+  getAllShops(): Shop[] {
+    return JSON.parse(localStorage.getItem('shops') || '[]')
+  },
+
+  addShop(shop: Omit<Shop, 'id' | 'createdAt' | 'trialEndsAt'>): Shop {
+    const shops: Shop[] = this.getAllShops()
+    
+    const cleanCNIC = shop.cnic.trim()
+    const cleanPass = shop.password.trim()
+    
+    if (shops.find(s => s.cnic.trim() === cleanCNIC)) {
+      throw new Error('Ye CNIC pehle se registered hai')
+    }
+
+    const now = new Date()
+    const newShop: Shop = {
+    ...shop,
+      cnic: cleanCNIC,
+      password: cleanPass,
+      id: `shop_${Date.now()}`,
+      createdAt: now.toISOString(),
+      trialEndsAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    }
+    
+    shops.push(newShop)
+    localStorage.setItem('shops', JSON.stringify(shops))
+    return newShop
+  },
+
+  updateShop(id: string, data: Partial<Shop>) {
+    const shops: Shop[] = this.getAllShops()
+    const index = shops.findIndex(s => s.id === id)
+    if (index === -1) return
+    
+    shops[index] = {...shops[index],...data }
+    localStorage.setItem('shops', JSON.stringify(shops))
+  },
+
+  deleteShop(id: string) {
+    const shops: Shop[] = this.getAllShops()
+    const filtered = shops.filter(s => s.id!== id)
+    localStorage.setItem('shops', JSON.stringify(filtered))
+    
+    // Shop ka saara data bhi delete karo
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(`${id}_`)) localStorage.removeItem(key)
+    })
+  },
+
+  // Har shop ka data alag - IMPORTANT
+  getShopData<T>(key: string, defaultValue: T): T {
+    const user = this.getCurrentUser()
+    if (!user?.shopId) return defaultValue
+    
+    const data = localStorage.getItem(`${user.shopId}_${key}`)
+    return data? JSON.parse(data) : defaultValue
+  },
+
+  setShopData(key: string, value: any) {
+    const user = this.getCurrentUser()
+    if (!user?.shopId) return
+    
+    localStorage.setItem(`${user.shopId}_${key}`, JSON.stringify(value))
+  }
+}

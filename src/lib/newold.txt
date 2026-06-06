@@ -1,0 +1,65 @@
+export const DB = {
+  getCustomers: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('customers') || '[]')
+  },
+  saveCustomers: (data: any) => {
+    localStorage.setItem('customers', JSON.stringify(data))
+  },
+  
+  getBills: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('bills') || '[]')
+  },
+  saveBills: (data: any) => {
+    localStorage.setItem('bills', JSON.stringify(data))
+  },
+  
+  getPayments: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('payments') || '[]')
+  },
+  savePayments: (data: any) => {
+    localStorage.setItem('payments', JSON.stringify(data))
+  },
+  
+  getOrders: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('orders') || '[]')
+  },
+  saveOrders: (data: any) => {
+    localStorage.setItem('orders', JSON.stringify(data))
+  },
+  
+  getInventory: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('medicines') || '[]')
+  },
+  saveInventory: (data: any) => {
+    localStorage.setItem('medicines', JSON.stringify(data))
+  },
+  
+  getShopInfo: () => {
+    if (typeof window === 'undefined') return { name: 'Pharmadesk' }
+    return JSON.parse(localStorage.getItem('shopInfo') || '{"name": "Pharmadesk"}')
+  },
+  saveShopInfo: (data: any) => {
+    localStorage.setItem('shopInfo', JSON.stringify(data))
+  },
+  
+  getPaymentMethods: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('paymentMethods') || '[]')
+  },
+  savePaymentMethods: (data: any) => {
+    localStorage.setItem('paymentMethods', JSON.stringify(data))
+  },
+  
+  getNotificationSound: () => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('notificationSound')
+  },
+  saveNotificationSound: (data: string) => {
+    localStorage.setItem('notificationSound', data)
+  }
+}

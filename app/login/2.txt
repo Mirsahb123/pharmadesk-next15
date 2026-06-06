@@ -1,0 +1,201 @@
+"use client"
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { toast, Toaster } from 'sonner'
+import { Eye, EyeOff, LogIn, Building2 } from 'lucide-react'
+import { Auth } from '@/lib/auth'
+
+const SUPER_ADMIN = {
+  cnic: '35202-1234567-1',
+  password: 'admin123'
+}
+
+export default function LoginPage() {
+  const [cnic, setCnic] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [isForgot, setIsForgot] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const router = useRouter()
+
+  useEffect(() => {
+    const currentUser = Auth.getCurrentUser()
+    if (currentUser) {
+      router.push(currentUser.role === 'superadmin'? '/admin/shops' : '/dashboard')
+      return
+    }
+  }, [router])
+
+  const formatCNIC = (value: string) => {
+    const numbers = value.replace(/\D/g, '').slice(0, 13)
+    if (numbers.length <= 5) return numbers
+    if (numbers.length <= 12) return `${numbers.slice(0, 5)}-${numbers.slice(5)}`
+    return `${numbers.slice(0, 5)}-${numbers.slice(5, 12)}-${numbers.slice(12)}`
+  }
+
+  const handleCNICChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCnic(formatCNIC(e.target.value))
+  }
+
+  const handleLogin = () => {
+    if (!cnic ||!password) return toast.error('CNIC aur Password dono likho')
+
+    // Super Admin check
+    if (cnic.replace(/\D/g, '') === SUPER_ADMIN.cnic.replace(/\D/g, '') && password === SUPER_ADMIN.password) {
+      const user = { cnic, role: 'superadmin', name: 'Super Admin', id: 'superadmin' }
+      Auth.setCurrentUser(user)
+      toast.success('Welcome Super Admin!')
+      router.push('/admin/shops')
+      return
+    }
+
+    // Shop Owner check
+    const shops = Auth.getAllShops()
+    const shop = shops.find((s) =>
+      s.cnic.replace(/\D/g, '') === cnic.replace(/\D/g, '') && s.password === password
+    )
+
+    if (!shop) {
+      toast.error('CNIC ya Password galat hai')
+      return
+    }
+
+    if (shop.plan === 'blocked') {
+      return toast.error('Account blocked hai. Admin se contact karo')
+    }
+
+    if (shop.plan === 'trial' && new Date(shop.trialEndsAt) < new Date()) {
+      return toast.error('Trial khatam ho gaya. Subscription renew karo')
+    }
+
+    const user = {
+      cnic,
+      role: 'shop',
+      shopId: shop.id,
+      name: shop.ownerName,
+      id: shop.id
+    }
+    Auth.setCurrentUser(user)
+    toast.success(`Welcome ${shop.ownerName}!`)
+    router.push('/dashboard')
+  }
+
+  const handleForgotPassword = () => {
+    if (!cnic ||!newPassword) return toast.error('CNIC aur Naya Password likho')
+
+    if (cnic.replace(/\D/g, '') === SUPER_ADMIN.cnic.replace(/\D/g, '')) {
+      return toast.error('Super Admin password yahan change nahi hota')
+    }
+
+    const shops = Auth.getAllShops()
+    const index = shops.findIndex(s => s.cnic.replace(/\D/g, '') === cnic.replace(/\D/g, ''))
+
+    if (index === -1) {
+      return toast.error('Ye CNIC register nahi hai')
+    }
+
+    Auth.updateShop(shops[index].id, { password: newPassword })
+    toast.success('Password reset ho gaya. Ab login karo')
+    setIsForgot(false)
+    setNewPassword('')
+    setPassword('')
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-6">
+      <Toaster position="top-center" richColors />
+      <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full">
+        <div className="text-center mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Building2 className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-4xl font-black text-gray-900 mb-2">💊 Pharmadesk</h1>
+          <p className="text-gray-500">
+            {isForgot? 'Password Reset' : 'SaaS Pharmacy System'}
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-semibold text-gray-700">CNIC</label>
+            <input
+              value={cnic}
+              onChange={handleCNICChange}
+              placeholder="35202-1234567-1"
+              maxLength={15}
+              className="border-2 p-3 rounded-lg w-full mt-1 focus:border-blue-600 outline-none"
+              onKeyDown={e => e.key === 'Enter' && (isForgot? handleForgotPassword() : handleLogin())}
+            />
+          </div>
+
+          {!isForgot? (
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="border-2 p-3 rounded-lg w-full mt-1 focus:border-blue-600 outline-none pr-12"
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Naya Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="Naya password likho"
+                  className="border-2 p-3 rounded-lg w-full mt-1 focus:border-blue-600 outline-none pr-12"
+                  onKeyDown={e => e.key === 'Enter' && handleForgotPassword()}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={isForgot? handleForgotPassword : handleLogin}
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-bold text-lg hover:from-blue-700 hover:to-purple-700 mt-6 flex items-center justify-center gap-2"
+          >
+            <LogIn className="w-5 h-5" />
+            {isForgot? 'Reset Password' : 'Login'}
+          </button>
+
+          <button
+            onClick={() => setIsForgot(!isForgot)}
+            className="w-full text-blue-600 text-sm font-semibold hover:text-blue-800"
+          >
+            {isForgot? '← Wapis Login' : 'Forgot Password?'}
+          </button>
+        </div>
+
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-xs text-gray-600 text-center">
+            <strong>Super Admin:</strong><br/>
+            CNIC: 35202-1234567-1<br/>
+            Password: admin123
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

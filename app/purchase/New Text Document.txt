@@ -1,0 +1,176 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+
+export default function PurchasePage() {
+  const [inventory, setInventory] = useState<any[]>([])
+  const [purchases, setPurchases] = useState<any[]>([])
+  const [supplierName, setSupplierName] = useState('')
+  const [selectedMed, setSelectedMed] = useState('')
+  const [purchaseQty, setPurchaseQty] = useState('')
+  const [purchasePrice, setPurchasePrice] = useState('')
+  const [invoiceNo, setInvoiceNo] = useState('')
+
+  useEffect(() => {
+    setInventory(DB.getInventory())
+    const saved = localStorage.getItem('pharmadesk_purchases')
+    setPurchases(saved? JSON.parse(saved) : [])
+  }, [])
+
+  const addPurchase = () => {
+    if(!supplierName || !selectedMed || !purchaseQty || !purchasePrice) {
+      return alert('Sab fields bharo')
+    }
+
+    const med = inventory.find(m => m.id === parseInt(selectedMed))
+    if(!med) return
+
+    // 1. Inventory me stock badhao
+    const updatedInventory = inventory.map(m => 
+      m.id === med.id 
+        ? { ...m, qty: m.qty + parseInt(purchaseQty) }
+        : m
+    )
+    DB.saveInventory(updatedInventory)
+    setInventory(updatedInventory)
+
+    // 2. Purchase record save karo
+    const newPurchase = {
+      id: Date.now(),
+      date: new Date().toISOString(),
+      invoiceNo: invoiceNo || `PUR-${Date.now()}`,
+      supplierName,
+      medicineId: med.id,
+      medicineName: med.name,
+      qty: parseInt(purchaseQty),
+      purchasePrice: parseFloat(purchasePrice),
+      total: parseInt(purchaseQty) * parseFloat(purchasePrice)
+    }
+
+    const updatedPurchases = [...purchases, newPurchase]
+    localStorage.setItem('pharmadesk_purchases', JSON.stringify(updatedPurchases))
+    setPurchases(updatedPurchases)
+
+    // Reset
+    setSupplierName(''); setSelectedMed(''); setPurchaseQty(''); setPurchasePrice(''); setInvoiceNo('')
+    alert('Purchase add ho gayi. Stock update ho gaya.')
+  }
+
+  const totalPurchase = purchases.reduce((sum, p) => sum + p.total, 0)
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Purchase Entry</h1>
+          <Link href="/dashboard" className="text-blue-600 hover:underline">← Dashboard</Link>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+          <h2 className="text-xl font-bold mb-4">Add New Purchase</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Supplier Name</label>
+              <input 
+                value={supplierName} 
+                onChange={e=>setSupplierName(e.target.value)}
+                placeholder="Supplier ka naam" 
+                className="border p-2 rounded w-full" 
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Invoice No</label>
+              <input 
+                value={invoiceNo} 
+                onChange={e=>setInvoiceNo(e.target.value)}
+                placeholder="Optional" 
+                className="border p-2 rounded w-full" 
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Select Medicine</label>
+              <select 
+                value={selectedMed} 
+                onChange={e=>setSelectedMed(e.target.value)}
+                className="border p-2 rounded w-full"
+              >
+                <option value="">-- Select --</option>
+                {inventory.map(m => (
+                  <option key={m.id} value={m.id}>{m.name} - Stock: {m.qty}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Purchase Qty</label>
+              <input 
+                value={purchaseQty} 
+                onChange={e=>setPurchaseQty(e.target.value)}
+                placeholder="Kitni quantity" 
+                type="number"
+                className="border p-2 rounded w-full" 
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600 mb-1 block">Purchase Price ₹</label>
+              <input 
+                value={purchasePrice} 
+                onChange={e=>setPurchasePrice(e.target.value)}
+                placeholder="Per piece cost" 
+                type="number"
+                className="border p-2 rounded w-full" 
+              />
+            </div>
+            <div className="flex items-end">
+              <button 
+                onClick={addPurchase}
+                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 font-semibold w-full"
+              >
+                Add Purchase
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 className="text-xl font-bold mb-4">Total Purchase: ₹{totalPurchase.toFixed(2)}</h2>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {purchases.slice().reverse().map(p => (
+                <div key={p.id} className="border-b pb-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium">{p.medicineName}</p>
+                      <p className="text-xs text-gray-500">{p.supplierName} - {p.invoiceNo}</p>
+                      <p className="text-xs text-gray-500">{new Date(p.date).toLocaleString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold">₹{p.total}</p>
+                      <p className="text-xs text-gray-500">{p.qty} x ₹{p.purchasePrice}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 className="text-xl font-bold mb-4">Current Stock</h2>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {inventory.map(m => (
+                <div key={m.id} className="flex justify-between items-center border-b pb-2">
+                  <span className="font-medium">{m.name}</span>
+                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${m.qty < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                    {m.qty} pcs
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

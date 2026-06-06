@@ -1,0 +1,294 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { mockMenuItems } from "@/lib/mockData";
+import type { MenuItem } from "@/types";
+import Hero from "@/components/Hero";
+
+// Cart ka type
+type CartItem = {
+  id: string;
+  menuItem: MenuItem;
+  selectedWeight: { weight: string; price: number };
+  quantity: number;
+};
+
+export default function HomePage() {
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedWeights, setSelectedWeights] = useState<{[key: string]: number}>({});
+  const [quantities, setQuantities] = useState<{[key: string]: number}>({});
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [showCartPopup, setShowCartPopup] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [orderMode, setOrderMode] = useState<"dine-in" | "delivery">("delivery");
+
+  const categories = ["all", "Breakfast", "Biryani & Rice", "Curries/Gravy", "Tandoori & BBQ", "Snacks & Burgers", "Drinks & Desserts"];
+
+  useEffect(() => {
+    loadMenuItems();
+    loadCart();
+  }, []);
+
+  const loadMenuItems = () => {
+    let allItems = [...mockMenuItems];
+    const stored = localStorage.getItem('darbar_menu');
+    if (stored) {
+      const adminItems = JSON.parse(stored);
+      const newItems = adminItems.filter((adminItem: MenuItem) =>!mockMenuItems.find(item => item.id === adminItem.id));
+      allItems = [...allItems,...newItems];
+    }
+    setMenuItems(allItems.filter(item => item.isAvailable));
+
+    const defaultQty: {[key: string]: number} = {};
+    allItems.forEach(item => { defaultQty[item.id] = 1 });
+    setQuantities(defaultQty);
+  };
+
+  const loadCart = () => {
+    const stored = localStorage.getItem('darbar_cart');
+    if (stored) {
+      setCartItems(JSON.parse(stored));
+    }
+  };
+
+  const saveCart = (items: CartItem[]) => {
+    localStorage.setItem('darbar_cart', JSON.stringify(items));
+    setCartItems(items);
+  };
+
+  const filteredItems = selectedCategory === "all"? menuItems : menuItems.filter(item => item.category === selectedCategory);
+
+  const handleQtyChange = (itemId: string, change: number) => {
+    setQuantities(prev => ({
+ ...prev,
+      [itemId]: Math.max(1, (prev[itemId] || 1) + change)
+    }));
+  };
+
+  const handleAddToCart = (item: MenuItem) => {
+    const weightIndex = selectedWeights[item.id] || 0;
+    const selectedWeight = item.weightOptions[weightIndex];
+    const qty = quantities[item.id] || 1;
+    const cartId = `${item.id}-${selectedWeight.weight}`;
+
+    const existingIndex = cartItems.findIndex(i => i.id === cartId);
+    let newCart = [...cartItems];
+
+    if (existingIndex >= 0) {
+      newCart[existingIndex].quantity += qty;
+    } else {
+      newCart.push({
+        id: cartId,
+        menuItem: item,
+        selectedWeight: selectedWeight,
+        quantity: qty
+      });
+    }
+
+    saveCart(newCart);
+    setQuantities(prev => ({...prev, [item.id]: 1 }));
+    setShowCartPopup(true);
+    setTimeout(() => setShowCartPopup(false), 2000);
+  };
+
+  const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <div className="min-h-screen bg-[#0F0F0F]">
+      {/* Navbar */}
+      <div className="bg-[#1A1A1A] border-b border-[#D4AF37]/20 text-white py-4 shadow-lg sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 md:px-6">
+          <div className="flex justify-between items-center">
+            {/* Logo */}
+            <div className="flex items-center gap-2 md:gap-3">
+              <img src="/logo.png" alt="Darbar Logo" className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover" />
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold font-[family-name:var(--font-cinzel)] text-[#D4AF37] tracking-wide">Darbar</h1>
+                <p className="text-[10px] md:text-xs text-[#D4AF37] font-[family-name:var(--font-cinzel)] tracking-[0.3em]">RESTAURANT</p>
+              </div>
+            </div>
+
+            {/* Desktop Nav */}
+            <div className="hidden md:flex items-center gap-6">
+              <Link href="/" className="hover:text-[#D4AF37] transition-colors">Home</Link>
+              <Link href="#menu" className="hover:text-[#D4AF37] transition-colors">Menu</Link>
+              <Link href="/about" className="hover:text-[#D4AF37] transition-colors">About Us</Link>
+              <Link href="/contact" className="hover:text-[#D4AF37] transition-colors">Contact</Link>
+              <Link href="/admin" className="hover:text-[#D4AF37] transition-colors text-sm">🔒 Admin</Link>
+
+              <div className="flex bg-[#0F0F0F] rounded-lg border border-[#D4AF37]/30 p-1">
+                <button onClick={() => setOrderMode("dine-in")} className={`px-3 py-1 rounded text-xs font-bold ${orderMode === "dine-in"? 'bg-[#D4AF37] text-[#1A1A1A]' : 'text-white'}`}>DINE-IN</button>
+                <button onClick={() => setOrderMode("delivery")} className={`px-3 py-1 rounded text-xs font-bold ${orderMode === "delivery"? 'bg-[#D4AF37] text-[#1A1A1A]' : 'text-white'}`}>DELIVERY</button>
+              </div>
+
+              <Link href="/cart" className="relative bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                Order Now
+                {cartCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </Link>
+            </div>
+
+            {/* Mobile Nav */}
+            <div className="flex md:hidden items-center gap-3">
+              <Link href="/cart" className="relative bg-green-600 text-white p-2 rounded-lg">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                {cartCount > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">{cartCount}</span>}
+              </Link>
+              <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-[#D4AF37] p-2">
+                <div className="space-y-1.5">
+                  <div className={`w-6 h-0.5 bg-[#D4AF37] transition-all ${mobileMenuOpen? 'rotate-45 translate-y-2' : ''}`}></div>
+                  <div className={`w-6 h-0.5 bg-[#D4AF37] transition-all ${mobileMenuOpen? 'opacity-0' : ''}`}></div>
+                  <div className={`w-6 h-0.5 bg-[#D4AF37] transition-all ${mobileMenuOpen? '-rotate-45 -translate-y-2' : ''}`}></div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {mobileMenuOpen && (
+            <div className="md:hidden mt-4 pb-4 border-t border-[#D4AF37]/20 pt-4 space-y-3">
+              <Link href="/" onClick={() => setMobileMenuOpen(false)} className="block text-white hover:text-[#D4AF37] py-2">🏠 Home</Link>
+              <Link href="#menu" onClick={() => setMobileMenuOpen(false)} className="block text-white hover:text-[#D4AF37] py-2">📋 Menu</Link>
+              <Link href="/about" onClick={() => setMobileMenuOpen(false)} className="block text-white hover:text-[#D4AF37] py-2">ℹ️ About Us</Link>
+              <Link href="/contact" onClick={() => setMobileMenuOpen(false)} className="block text-white hover:text-[#D4AF37] py-2">📞 Contact</Link>
+              <Link href="/admin" onClick={() => setMobileMenuOpen(false)} className="block text-[#D4AF37] hover:text-[#F4C430] py-2 font-bold">🔒 Admin Panel</Link>
+              <div className="pt-3 border-t border-[#D4AF37]/20">
+                <p className="text-gray-400 text-xs mb-2">Order Mode:</p>
+                <div className="flex bg-[#0F0F0F] rounded-lg border border-[#D4AF37]/30 p-1">
+                  <button onClick={() => { setOrderMode("dine-in"); setMobileMenuOpen(false); }} className={`flex-1 px-3 py-2 rounded text-sm font-bold ${orderMode === "dine-in"? 'bg-[#D4AF37] text-[#1A1A1A]' : 'text-white'}`}>🪑 DINE-IN</button>
+                  <button onClick={() => { setOrderMode("delivery"); setMobileMenuOpen(false); }} className={`flex-1 px-3 py-2 rounded text-sm font-bold ${orderMode === "delivery"? 'bg-[#D4AF37] text-[#1A1A1A]' : 'text-white'}`}>🚚 DELIVERY</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {orderMode === "dine-in" && (
+        <div className="bg-[#D4AF37] text-[#1A1A1A] py-2 text-center font-bold text-sm">🪑 DINE-IN MODE - Select your table to order</div>
+      )}
+
+      <Hero />
+
+      {showCartPopup && (
+        <div className="fixed top-24 right-6 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-bounce">✓ Added to Cart!</div>
+      )}
+
+      {/* Menu Section */}
+      <div id="menu" className="max-w-7xl mx-auto px-4 md:px-6 py-12 bg-[#0F0F0F]">
+        <div className="mb-8">
+          <h2 className="text-4xl font-bold text-white mb-6 text-center font-[family-name:var(--font-cinzel)]">Our Menu</h2>
+          <div className="flex gap-3 overflow-x-auto pb-2 justify-center">
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-6 py-2 rounded-full font-semibold whitespace-nowrap transition-all ${
+                  selectedCategory === cat
+                ? 'bg-[#D4AF37] text-[#1A1A1A] shadow-lg'
+                    : 'bg-[#1A1A1A] text-white border border-[#D4AF37]/30 hover:border-[#D4AF37]'
+                }`}
+              >
+                {cat === "all"? "All Items" : cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredItems.map(item => {
+            const isHot = item.temp === 'hot';
+            const textColor = isHot? 'text-orange-400' : 'text-cyan-400';
+            const rating = item.averageRating || 4.5;
+            const currentWeight = selectedWeights[item.id] || 0;
+            const currentQty = quantities[item.id] || 1;
+            const currentPrice = item.weightOptions[currentWeight].price;
+
+            return (
+              <div key={item.id} className="bg-[#1A1A1A] rounded-lg overflow-hidden hover:shadow-[0_0_30px_rgba(212,175,55,0.2)] transition-all border border-[#D4AF37]/10">
+                <div className="relative h-56">
+                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                  {item.discount?.isActive && (
+                    <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold">
+                      {item.discount.value}{item.discount.type === 'percentage'? '%' : ' Rs'} OFF
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5">
+                  <h3 className={`text-2xl font-bold mb-2 ${textColor}`}>{item.name}</h3>
+
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex text-yellow-400">
+                      {'★'.repeat(Math.floor(rating))}
+                      {rating % 1!== 0 && '☆'}
+                    </div>
+                    <span className="text-gray-400 text-sm">({rating})</span>
+                  </div>
+
+                  <p className={`text-sm mb-4 ${textColor}/80`}>{item.description}</p>
+
+                  <div className="mb-4">
+                    <p className="text-white text-sm mb-2">Select Size:</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {item.weightOptions.map((opt, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setSelectedWeights({...selectedWeights, [item.id]: idx})}
+                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                            currentWeight === idx
+                          ? 'bg-[#D4AF37] text-[#1A1A1A]'
+                              : 'bg-[#0F0F0F] text-white border border-[#D4AF37]/30 hover:border-[#D4AF37]'
+                          }`}
+                        >
+                          {opt.weight}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    {item.discount?.isActive? (
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-500 line-through text-xl">Rs. {currentPrice}</span>
+                        <span className="text-3xl font-bold text-[#D4AF37]">
+                          Rs. {item.discount.type === 'percentage'
+                        ? Math.round(currentPrice * (1 - item.discount.value / 100))
+                            : currentPrice - item.discount.value}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-3xl font-bold text-[#D4AF37]">Rs. {currentPrice}</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-white text-sm">Qty:</span>
+                    <div className="flex items-center gap-2 bg-[#0F0F0F] rounded-lg border border-[#D4AF37]/30">
+                      <button onClick={() => handleQtyChange(item.id, -1)} className="px-3 py-1 text-white hover:bg-[#D4AF37]/20 rounded-l-lg">-</button>
+                      <span className="text-white px-3 min-w- text-center">{currentQty}</span>
+                      <button onClick={() => handleQtyChange(item.id, 1)} className="px-3 py-1 text-white hover:bg-[#D4AF37]/20 rounded-r-lg">+</button>
+                    </div>
+                  </div>
+
+                  <button onClick={() => handleAddToCart(item)} className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold transition-all active:scale-95">
+                    Add to Cart
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

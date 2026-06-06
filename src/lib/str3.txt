@@ -1,0 +1,97 @@
+// lib/storage.ts
+
+export const DB = {
+  // === CUSTOMERS ===
+  getCustomers: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('customers') || '[]')
+  },
+  
+  saveCustomers: (customers: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('customers', JSON.stringify(customers))
+    }
+  },
+
+  // === BILLS ===
+  getBills: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('bills') || '[]')
+  },
+  
+  saveBills: (bills: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bills', JSON.stringify(bills))
+    }
+  },
+
+  // === PAYMENTS ===
+  getPayments: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('payments') || '[]')
+  },
+  
+  savePayments: (payments: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('payments', JSON.stringify(payments))
+    }
+  },
+
+  // === MEDICINES / INVENTORY - BOTH NAMES WORK ===
+  getMedicines: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('medicines') || '[]')
+  },
+  
+  saveMedicines: (medicines: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('medicines', JSON.stringify(medicines))
+    }
+  },
+
+  getInventory: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('medicines') || '[]')
+  },
+  
+  saveInventory: (items: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('medicines', JSON.stringify(items))
+    }
+  },
+
+  // === SHOP INFO ===
+  getShopInfo: () => {
+    if (typeof window === 'undefined') return {}
+    return JSON.parse(localStorage.getItem('shopInfo') || '{}')
+  },
+  
+  saveShopInfo: (info: any) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('shopInfo', JSON.stringify(info))
+    }
+  },
+
+  // === PAYMENT METHODS - NEW ===
+  getPaymentMethods: () => {
+    if (typeof window === 'undefined') return []
+    return JSON.parse(localStorage.getItem('paymentMethods') || '[]')
+  },
+  
+  savePaymentMethods: (methods: any[]) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('paymentMethods', JSON.stringify(methods))
+    }
+  },
+  
+  getNotificationSound: () => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem('notificationSound') || ''
+  },
+  
+  saveNotificationSound: (sound: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('notificationSound', sound)
+    }
+  }
+}

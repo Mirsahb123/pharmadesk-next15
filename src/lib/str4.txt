@@ -1,0 +1,135 @@
+// lib/storage.ts
+import { Auth } from '@/lib/auth'
+
+export type Medicine = {
+  id?: string
+  name: string
+  type: string
+  price: number
+  qty: number
+  expiry: string
+  qrCode?: string
+  unitsPerStrip?: number
+  stripsPerBox?: number
+}
+
+export type Bill = {
+  id: number
+  date: string
+  customerName: string
+  customerPhone: string
+  items: any[]
+  subtotal: number
+  discount: number
+  discountPercent: number
+  gstEnabled: boolean
+  gstPercent: number
+  gstAmount: number
+  total: number
+  paymentMethod: string
+  paidAmount: number
+  balance: number
+  billNo: string
+  printSize: string
+}
+
+// SAAS SYSTEM - HAR SHOP KA DATA ALAG
+export const DB = {
+  getCustomers: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('customers', [])
+  },
+  saveCustomers: (data: any) => {
+    Auth.setShopData('customers', data)
+  },
+  
+  getBills: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('bills', [])
+  },
+  saveBills: (data: any) => {
+    Auth.setShopData('bills', data)
+  },
+  
+  // BILL SAVE + STOCK UPDATE - YE ADD KARO
+  saveBill: (billData: any) => {
+    if (typeof window === 'undefined') return
+    
+    // 1. Save bill
+    const bills = DB.getBills()
+    const newBill: Bill = {
+    ...billData,
+      id: Date.now(),
+      date: new Date().toISOString()
+    }
+    DB.saveBills([newBill,...bills])
+    
+    // 2. Update inventory stock
+    const inventory = DB.getInventory()
+    const updated = inventory.map((m: Medicine) => {
+      const cartItems = billData.items.filter((c: any) => c.inventoryId === m.id)
+      if (cartItems.length > 0) {
+        const totalDeduct = cartItems.reduce((sum: number, item: any) => sum + (item.totalPieces || item.qty), 0)
+        return {...m, qty: Math.max(0, m.qty - totalDeduct) }
+      }
+      return m
+    })
+    DB.saveInventory(updated)
+  },
+  
+  getPayments: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('payments', [])
+  },
+  savePayments: (data: any) => {
+    Auth.setShopData('payments', data)
+  },
+  
+  getOrders: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('orders', [])
+  },
+  saveOrders: (data: any) => {
+    Auth.setShopData('orders', data)
+  },
+  
+  getInventory: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('inventory', [])
+  },
+  saveInventory: (data: any) => {
+    Auth.setShopData('inventory', data)
+  },
+  
+  getShopInfo: () => {
+    if (typeof window === 'undefined') return { name: 'Pharmadesk' }
+    return Auth.getShopData('shopInfo', { name: 'Pharmadesk' })
+  },
+  saveShopInfo: (data: any) => {
+    Auth.setShopData('shopInfo', data)
+  },
+  
+  getPaymentMethods: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('paymentMethods', [])
+  },
+  savePaymentMethods: (data: any) => {
+    Auth.setShopData('paymentMethods', data)
+  },
+  
+  getNotificationSound: () => {
+    if (typeof window === 'undefined') return null
+    return Auth.getShopData('notificationSound', null)
+  },
+  saveNotificationSound: (data: string) => {
+    Auth.setShopData('notificationSound', data)
+  },
+
+  getStaff: () => {
+    if (typeof window === 'undefined') return []
+    return Auth.getShopData('staff', [])
+  },
+  saveStaff: (data: any) => {
+    Auth.setShopData('staff', data)
+  }
+}

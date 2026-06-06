@@ -1,0 +1,300 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+
+export default function CustomersPage() {
+  const router = useRouter()
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [customers, setCustomers] = useState<any[]>([])
+  const [bills, setBills] = useState<any[]>([])
+  const [payments, setPayments] = useState<any[]>([])
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
+  const [search, setSearch] = useState('')
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '' })
+  const [paymentForm, setPaymentForm] = useState({ amount: '', note: '', date: new Date().toISOString().split('T')[0] })
+
+  useEffect(() => {
+    const user = localStorage.getItem('currentUser')
+    if (!user) return router.push('/login')
+    setCurrentUser(JSON.parse(user))
+
+    loadData()
+  }, [router])
+
+  const loadData = () => {
+    setCustomers(DB.getCustomers())
+    setBills(DB.getBills())
+    setPayments(DB.getPayments())
+  }
+
+  const addCustomer = () => {
+    if (!customerForm.name ||!customerForm.phone) return alert('Name aur Phone zaroori hai')
+
+    const newCustomer = {
+      id: Date.now().toString(), // String ID for URL
+     ...customerForm,
+      customerQR: `CUST-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    }
+
+    DB.saveCustomers([...DB.getCustomers(), newCustomer])
+    loadData()
+    setCustomerForm({ name: '', phone: '', address: '' })
+    setShowAddForm(false)
+    alert(`Customer add ho gaya!\nPortal: /customers/${newCustomer.id}`)
+  }
+
+  const getCustomerDue = (customer: any) => {
+    const customerBills = bills.filter(b => b.customerPhone === customer.phone || b.customerId === customer.id)
+    const totalDue = customerBills.reduce((sum: number, b: any) => sum + (b.total || 0), 0)
+    const customerPayments = payments.filter(p => p.customerPhone === customer.phone || p.customerId === customer.id)
+    const totalPaid = customerPayments.filter(p => p.status === 'approved').reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+    return totalDue - totalPaid
+  }
+
+  const getLastBillDate = (customer: any) => {
+    const customerBills = bills.filter(b => b.customerPhone === customer.phone || b.customerId === customer.id)
+    if (customerBills.length === 0) return 'No bills'
+    const last = customerBills.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+    return new Date(last.date).toLocaleDateString('en-PK')
+  }
+
+  const getDueDays = (customer: any) => {
+    const customerBills = bills.filter(b => (b.customerPhone === customer.phone || b.customerId === customer.id) && (b.due || b.total) > 0)
+    if (customerBills.length === 0) return 0
+    const oldest = customerBills.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]
+    const diff = Math.floor((new Date().getTime() - new Date(oldest.date).getTime()) / (1000*60*60*24))
+    return diff
+  }
+
+  const getCustomerHistory = (customer: any) => {
+    return bills.filter(b => b.customerPhone === customer.phone || b.customerId === customer.id)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5)
+  }
+
+  const receivePayment = () => {
+    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) return alert('Sahi amount likho')
+
+    const amount = parseFloat(paymentForm.amount)
+    const newPayment = {
+      id: Date.now(),
+      customerId: selectedCustomer.id,
+      customerPhone: selectedCustomer.phone,
+      customerName: selectedCustomer.name,
+      amount,
+      note: paymentForm.note,
+      date: paymentForm.date,
+      receivedBy: currentUser.name,
+      status: 'approved' // Shop se direct receive
+    }
+
+    DB.savePayments([...DB.getPayments(), newPayment])
+    loadData()
+    setPaymentForm({ amount: '', note: '', date: new Date().toISOString().split('T')[0] })
+    setShowPaymentModal(false)
+    alert(`Rs. ${amount} received from ${selectedCustomer.name}`)
+  }
+
+  const printKhata = (customer: any) => {
+    const due = getCustomerDue(customer)
+    const history = getCustomerHistory(customer)
+    const customerPayments = payments.filter(p => p.customerPhone === customer.phone || p.customerId === customer.id)
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Khata - ${customer.name}</title>
+        <style>
+          body { font-family: Arial; padding: 20px; font-size: 12px; }
+          h1 { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; }
+         .header { display: flex; justify-content: space-between; margin: 20px 0; }
+         .info-box { border: 1px solid #000; padding: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 11px; }
+          th { background: #f0f0f0; }
+         .total { font-size: 16px; font-weight: bold; text-align: right; margin-top: 15px; border-top: 2px solid #000; padding-top: 10px; }
+         .qr { text-align: center; margin: 20px 0; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>💊 Pharmadesk - Customer Khata</h1>
+        <div class="header">
+          <div class="info-box">
+            <p><strong>Customer:</strong> ${customer.name}</p>
+            <p><strong>Phone:</strong> ${customer.phone}</p>
+            <p><strong>Portal Link:</strong> /customers/${customer.id}</p>
+          </div>
+          <div class="info-box">
+            <p><strong>Date:</strong> ${new Date().toLocaleDateString('en-PK')}</p>
+            <p><strong>Total Due:</strong> Rs. ${due.toFixed(0)}</p>
+            <p><strong>Due Days:</strong> ${getDueDays(customer)} days</p>
+          </div>
+        </div>
+        <h3>Bill History</h3>
+        <table>
+          <thead><tr><th>Date</th><th>Bill No</th><th>Amount</th></tr></thead>
+          <tbody>
+            ${history.map(b => `
+              <tr>
+                <td>${new Date(b.date).toLocaleDateString('en-PK')}</td>
+                <td>${b.id}</td>
+                <td>Rs. ${b.total.toFixed(0)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="total">Total Outstanding: Rs. ${due.toFixed(0)}</div>
+        <div class="qr">
+          <p><strong>Customer Portal:</strong></p>
+          <p style="font-family: monospace;">http://localhost:3000/customers/${customer.id}</p>
+        </div>
+        <button onclick="window.print()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px;">Print</button>
+      </body>
+      </html>
+    `
+    printWindow.document.write(html)
+    printWindow.document.close()
+  }
+
+  const openDoubleQR = (customer: any) => {
+    // Portal page khol do new tab me
+    window.open(`/customers/${customer.id}`, '_blank')
+  }
+
+  const filteredCustomers = customers.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.phone.includes(search)
+  )
+
+  if (!currentUser) return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-purple-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-3xl font-black text-gray-900">Customers</h1>
+            <p className="text-gray-500">Double QR Khata System</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setShowAddForm(!showAddForm)} className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700">
+              {showAddForm? 'Cancel' : '+ New Customer'}
+            </button>
+            <Link href="/dashboard" className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700">← Dashboard</Link>
+          </div>
+        </div>
+
+        {showAddForm && (
+          <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+            <h3 className="text-xl font-bold mb-4">Add New Customer</h3>
+            <div className="grid md:grid-cols-3 gap-3">
+              <input value={customerForm.name} onChange={e => setCustomerForm({...customerForm, name: e.target.value})} placeholder="Customer Name *" className="border-2 p-3 rounded-lg" />
+              <input value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone: e.target.value})} placeholder="Phone Number *" className="border-2 p-3 rounded-lg" />
+              <input value={customerForm.address} onChange={e => setCustomerForm({...customerForm, address: e.target.value})} placeholder="Address" className="border-2 p-3 rounded-lg" />
+            </div>
+            <button onClick={addCustomer} className="mt-4 bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700">Save Customer</button>
+          </div>
+        )}
+
+        <div className="bg-white p-4 rounded-xl shadow-sm border mb-6">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search by name or phone..." className="border-2 p-3 rounded-lg w-full" />
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {filteredCustomers.map(customer => {
+            const due = getCustomerDue(customer)
+            const dueDays = getDueDays(customer)
+            const lastBill = getLastBillDate(customer)
+
+            return (
+              <div key={customer.id} className="bg-white p-6 rounded-xl shadow-sm border hover:shadow-lg transition">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">{customer.name}</h3>
+                    <p className="text-gray-600">{customer.phone}</p>
+                  </div>
+                  <button onClick={() => openDoubleQR(customer)} className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-blue-200">
+                    📱 Double QR
+                  </button>
+                </div>
+
+                <div className="my-4">
+                  <p className="text-sm text-gray-500">Total Udhaar</p>
+                  <p className={`text-3xl font-black ${due > 0? 'text-red-600' : 'text-green-600'}`}>₹{due.toFixed(0)}</p>
+                  {due > 0 && <p className="text-xs text-red-500 mt-1">Due: {dueDays} days | Last: {lastBill}</p>}
+                </div>
+
+                <div className="text-xs text-gray-600 space-y-1 mb-4">
+                  <p>✓ Shop QR: Billing ke liye</p>
+                  <p>✓ Customer QR: Khata + Payment</p>
+                </div>
+
+                <details className="text-xs mb-4">
+                  <summary className="cursor-pointer text-blue-600 font-semibold">View History</summary>
+                  <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                    {getCustomerHistory(customer).length === 0? (
+                      <p className="text-gray-400">Koi bill nahi</p>
+                    ) : (
+                      getCustomerHistory(customer).map(bill => (
+                        <div key={bill.id} className="text-gray-600 border-l-2 border-gray-200 pl-2">
+                          {new Date(bill.date).toLocaleDateString('en-PK')} - Rs.{bill.total.toFixed(0)}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </details>
+
+                <div className="flex gap-2">
+                  <button onClick={() => { setSelectedCustomer(customer); setShowPaymentModal(true); }} className="flex-1 bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-green-700 disabled:bg-gray-300" disabled={due <= 0}>
+                    💰 Payment
+                  </button>
+                  <button onClick={() => printKhata(customer)} className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700">
+                    🖨️ Print
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {filteredCustomers.length === 0 && (
+          <div className="bg-white p-12 rounded-xl shadow-sm border text-center text-gray-500">
+            {search? 'No customers found' : 'No customers yet. Add your first customer!'}
+          </div>
+        )}
+
+        {showPaymentModal && selectedCustomer && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowPaymentModal(false)}>
+            <div className="bg-white p-6 rounded-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+              <h3 className="text-2xl font-bold mb-2">Receive Payment</h3>
+              <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                <p className="text-sm text-gray-600">From: <strong>{selectedCustomer.name}</strong></p>
+                <p className="text-sm text-gray-600">Phone: <strong>{selectedCustomer.phone}</strong></p>
+                <p className="text-lg text-red-600 mt-2">Due: <strong>Rs. {getCustomerDue(selectedCustomer).toFixed(0)}</strong></p>
+              </div>
+              <div className="space-y-3">
+                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} placeholder="Amount Received *" className="border-2 p-3 rounded-lg w-full text-xl font-bold" />
+                <input type="date" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} className="border-2 p-3 rounded-lg w-full" />
+                <input value={paymentForm.note} onChange={e => setPaymentForm({...paymentForm, note: e.target.value})} placeholder="Note - Cash/JazzCash/etc" className="border-2 p-3 rounded-lg w-full" />
+              </div>
+              <div className="flex gap-2 mt-6">
+                <button onClick={receivePayment} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700">Receive Payment</button>
+                <button onClick={() => setShowPaymentModal(false)} className="flex-1 bg-gray-500 text-white py-3 rounded-lg font-bold hover:bg-gray-600">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

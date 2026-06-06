@@ -1,0 +1,372 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+type MenuItem = {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+  category: string;
+};
+
+type CartItem = {
+  id: string;
+  menuItem: MenuItem;
+  selectedWeight: { weight: string; price: number };
+  quantity: number;
+};
+
+type DeliveryArea = { id: string; city: string; village: string; area: string; subArea?: string; km: number };
+
+export default function CheckoutPage() {
+  const router = useRouter();
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
+  const [kmRate, setKmRate] = useState(30);
+  const [minCharge, setMinCharge] = useState(100);
+
+  const [selectedCity, setSelectedCity] = useState("");
+  const [selectedVillage, setSelectedVillage] = useState("");
+  const [selectedArea, setSelectedArea] = useState("");
+  const [selectedSubArea, setSelectedSubArea] = useState("");
+  const [fullAddress, setFullAddress] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("easypaisa");
+  const [senderName, setSenderName] = useState("");
+  const [paymentScreenshot, setPaymentScreenshot] = useState("");
+  const [orderPlaced, setOrderPlaced] = useState(false);
+  const [orderId, setOrderId] = useState("");
+
+  useEffect(() => {
+    // Cart localStorage se load karo
+    const storedCart = localStorage.getItem('darbar_cart');
+    if (storedCart) setItems(JSON.parse(storedCart));
+
+    const areas = JSON.parse(localStorage.getItem('darbar_delivery_areas') || '[]');
+    setDeliveryAreas(areas);
+    setKmRate(parseInt(localStorage.getItem('darbar_km_rate') || '30'));
+    setMinCharge(parseInt(localStorage.getItem('darbar_min_charge') || '100'));
+  }, []);
+
+  const clearCart = () => {
+    localStorage.removeItem('darbar_cart');
+    window.dispatchEvent(new Event('cartUpdated'));
+  };
+
+  const cities = [...new Set(deliveryAreas.map(a => a.city))];
+  const villages = deliveryAreas.filter(a => a.city === selectedCity).map(a => a.village);
+  const uniqueVillages = [...new Set(villages)];
+  const areas = deliveryAreas.filter(a => a.city === selectedCity && a.village === selectedVillage).map(a => a.area);
+  const uniqueAreas = [...new Set(areas)];
+  const subAreas = deliveryAreas.filter(a => a.city === selectedCity && a.village === selectedVillage && a.area === selectedArea).map(a => a.subArea).filter(Boolean) as string[];
+
+  const selectedAreaData = deliveryAreas.find(a =>
+    a.city === selectedCity &&
+    a.village === selectedVillage &&
+    a.area === selectedArea &&
+    (subAreas.length === 0 || a.subArea === selectedSubArea || (!a.subArea &&!selectedSubArea))
+  );
+
+  const subtotal = items.reduce((sum, item) => sum + (item.selectedWeight.price * item.quantity), 0);
+  const deliveryCharge = selectedAreaData? Math.max(minCharge, selectedAreaData.km * kmRate) : 0;
+  const total = subtotal + deliveryCharge;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPaymentScreenshot(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handlePlaceOrder = () => {
+    if (!customerName.trim()) return alert('Please enter your name');
+    if (!customerPhone.trim()) return alert('Please enter WhatsApp number');
+    if (!selectedCity) return alert('Please select city');
+    if (!selectedVillage) return alert('Please select village/town');
+    if (!selectedArea) return alert('Please select area');
+    if (!fullAddress.trim()) return alert('Please enter house/street address');
+    if (!senderName.trim()) return alert('Please enter sender account name');
+    if (!paymentScreenshot) return alert('Please upload payment screenshot');
+    if (items.length === 0) return alert('Cart is empty');
+    if (!selectedAreaData) return alert('Please select valid delivery area');
+
+    const newOrderId = `DB-${Date.now()}`;
+    const order = {
+      id: newOrderId,
+      type: "delivery",
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      items,
+      subtotal,
+      deliveryCharge,
+      total,
+      deliveryArea: {
+        id: selectedAreaData.id,
+        city: selectedAreaData.city,
+        village: selectedAreaData.village,
+        area: selectedAreaData.area,
+        subArea: selectedAreaData.subArea || "",
+        km: selectedAreaData.km
+      },
+      fullAddress: fullAddress.trim(),
+      paymentMethod,
+      senderName: senderName.trim(),
+      paymentScreenshot,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    const existingOrders = JSON.parse(localStorage.getItem('darbar_orders') || '[]');
+    localStorage.setItem('darbar_orders', JSON.stringify([...existingOrders, order]));
+
+    // Customer auto save
+    const customers = JSON.parse(localStorage.getItem('darbar_customers') || '[]');
+    const existingCustomer = customers.find((c: any) => c.phone === customerPhone);
+    if (existingCustomer) {
+      existingCustomer.totalOrders += 1;
+      existingCustomer.totalSpent += total;
+      existingCustomer.lastOrder = new Date().toISOString();
+    } else {
+      customers.push({
+        id: Date.now().toString(),
+        name: customerName,
+        phone: customerPhone,
+        address: `${selectedAreaData.area}, ${selectedAreaData.village}, ${selectedAreaData.city}`,
+        totalOrders: 1,
+        totalSpent: total,
+        lastOrder: new Date().toISOString()
+      });
+    }
+    localStorage.setItem('darbar_customers', JSON.stringify(customers));
+
+    setOrderId(newOrderId);
+    setOrderPlaced(true);
+    clearCart();
+  };
+
+  if (orderPlaced) {
+    return (
+      <div className="min-h-screen bg-[#0F0F0F] text-white flex items-center justify-center p-4">
+        <div className="bg-[#1A1A1A] p-8 rounded-lg border border-green-500/30 max-w-md w-full text-center">
+          <div className="text-6xl mb-4">✅</div>
+          <h1 className="text-3xl font-bold text-green-400 mb-4">Order Placed!</h1>
+          <p className="text-gray-300 mb-2">Your Order ID:</p>
+          <p className="text-2xl font-bold text-[#D4AF37] mb-6">{orderId}</p>
+          <p className="text-gray-400 text-sm mb-6">We will confirm your order shortly via WhatsApp on {customerPhone}</p>
+          <Link href="/" className="bg-[#D4AF37] text-black px-6 py-3 rounded-lg font-bold inline-block hover:bg-[#F4C430]">
+            Order More
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#0F0F0F] text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-2xl mb-4">Cart is empty</p>
+          <Link href="/#menu" className="text-[#D4AF37] underline">Go to Menu</Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0F0F0F] text-white p-4 md:p-6">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-[#D4AF37] mb-6">Checkout</h1>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            <div className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20">
+              <h2 className="text-xl font-bold text-[#D4AF37] mb-4">Customer Details</h2>
+              <input
+                type="text"
+                placeholder="Full Name *"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+              />
+              <input
+                type="text"
+                placeholder="WhatsApp Number * e.g. 03XX-XXXXXXX"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+              />
+            </div>
+
+            <div className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20">
+              <h2 className="text-xl font-bold text-[#D4AF37] mb-4">Delivery Address</h2>
+
+              {deliveryAreas.length === 0 && (
+                <p className="text-red-400 text-sm mb-3">⚠️ No delivery areas added. Please add areas from Admin Panel first.</p>
+              )}
+
+              <select
+                value={selectedCity}
+                onChange={(e) => {setSelectedCity(e.target.value); setSelectedVillage(""); setSelectedArea(""); setSelectedSubArea("");}}
+                className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+              >
+                <option value="">Select City *</option>
+                {cities.map(city => <option key={city} value={city}>{city}</option>)}
+              </select>
+
+              {selectedCity && (
+                <select
+                  value={selectedVillage}
+                  onChange={(e) => {setSelectedVillage(e.target.value); setSelectedArea(""); setSelectedSubArea("");}}
+                  className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+                >
+                  <option value="">Select Village/Town *</option>
+                  {uniqueVillages.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              )}
+
+              {selectedVillage && (
+                <select
+                  value={selectedArea}
+                  onChange={(e) => {setSelectedArea(e.target.value); setSelectedSubArea("");}}
+                  className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+                >
+                  <option value="">Select Area *</option>
+                  {uniqueAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              )}
+
+              {selectedArea && subAreas.length > 0 && (
+                <select
+                  value={selectedSubArea}
+                  onChange={(e) => setSelectedSubArea(e.target.value)}
+                  className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+                >
+                  <option value="">Select Sub-Area</option>
+                  {subAreas.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
+
+              <textarea
+                placeholder="House No, Street, Landmark *"
+                value={fullAddress}
+                onChange={(e) => setFullAddress(e.target.value)}
+                className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30 h-20"
+              />
+
+              {selectedAreaData && (
+                <div className="bg-[#0F0F0F] p-3 rounded border border-green-500/30">
+                  <p className="text-green-400 text-sm">✅ Distance: {selectedAreaData.km} KM</p>
+                  <p className="text-[#D4AF37] font-bold">Delivery Charges: Rs. {deliveryCharge}</p>
+                  <p className="text-gray-500 text-xs mt-1">Rate: Rs. {kmRate}/km (Min Rs. {minCharge})</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20">
+              <h2 className="text-xl font-bold text-[#D4AF37] mb-4">Payment Details</h2>
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => setPaymentMethod('easypaisa')}
+                  className={`flex-1 py-3 rounded border-2 ${paymentMethod === 'easypaisa'? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-600'}`}
+                >
+                  EasyPaisa
+                </button>
+                <button
+                  onClick={() => setPaymentMethod('jazzcash')}
+                  className={`flex-1 py-3 rounded border-2 ${paymentMethod === 'jazzcash'? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-600'}`}
+                >
+                  JazzCash
+                </button>
+              </div>
+
+              <div className="bg-[#0F0F0F] p-4 rounded mb-3 text-center">
+                <p className="text-gray-400 text-sm">Send payment to:</p>
+                <p className="text-xl font-bold text-[#D4AF37]">0345-1234567</p>
+                <p className="text-gray-400 text-sm">Account: Darbar Restaurant</p>
+              </div>
+
+              <input
+                type="text"
+                placeholder="Sender Account Name *"
+                value={senderName}
+                onChange={(e) => setSenderName(e.target.value)}
+                className="w-full bg-[#0F0F0F] text-white p-3 rounded mb-3 border border-[#D4AF37]/30"
+              />
+
+              <label className="block">
+                <span className="text-gray-400 text-sm">Upload Payment Screenshot * (Max 5MB)</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="w-full bg-[#0F0F0F] text-white p-3 rounded mt-1 border border-[#D4AF37]/30 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-[#D4AF37] file:text-black"
+                />
+              </label>
+
+              {paymentScreenshot && (
+                <img src={paymentScreenshot} alt="Payment" className="w-full h-40 object-contain rounded mt-3 border border-[#D4AF37]/30 bg-black" />
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 sticky top-6">
+              <h2 className="text-xl font-bold text-[#D4AF37] mb-4">Order Summary</h2>
+
+              <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
+                {items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-sm border-b border-gray-800 pb-2">
+                    <div>
+                      <p className="text-white">{item.menuItem.name}</p>
+                      <p className="text-gray-400">{item.selectedWeight.weight} x {item.quantity}</p>
+                    </div>
+                    <p className="text-[#D4AF37] font-bold">Rs. {item.selectedWeight.price * item.quantity}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-gray-700 pt-4 space-y-2">
+                <div className="flex justify-between text-gray-300">
+                  <span>Subtotal</span>
+                  <span>Rs. {subtotal}</span>
+                </div>
+                <div className="flex justify-between text-gray-300">
+                  <span>Delivery Charges</span>
+                  <span>Rs. {deliveryCharge}</span>
+                </div>
+                <div className="flex justify-between text-xl font-bold text-[#D4AF37] pt-2 border-t border-gray-700">
+                  <span>Total</span>
+                  <span>Rs. {total}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handlePlaceOrder}
+                disabled={!selectedAreaData ||!paymentScreenshot || deliveryAreas.length === 0}
+                className="w-full bg-[#D4AF37] text-black py-4 rounded-lg font-bold text-lg mt-6 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#F4C430] transition-colors"
+              >
+                Place Order - Rs. {total}
+              </button>
+
+              <p className="text-gray-500 text-xs text-center mt-3">
+                * All fields required. Works 100% offline
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

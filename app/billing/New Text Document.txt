@@ -1,0 +1,403 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+
+export default function BillingPage() {
+  const [medicines, setMedicines] = useState<any[]>([])
+  const [cart, setCart] = useState<any[]>([])
+  const [customerName, setCustomerName] = useState('Walk-in Customer')
+  const [customerPhone, setCustomerPhone] = useState('')
+  
+  // Add Item Form
+  const [qrInput, setQrInput] = useState('')
+  const [selectedType, setSelectedType] = useState('Tablet')
+  const [productName, setProductName] = useState('')
+  const [price, setPrice] = useState('')
+  const [qty, setQty] = useState(1)
+
+  // Bill Summary
+  const [discount, setDiscount] = useState(0)
+  const [discountType, setDiscountType] = useState('Rs')
+  const [gst, setGst] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState('Cash')
+  const [paidAmount, setPaidAmount] = useState(0)
+  const [printSize, setPrintSize] = useState('A4')
+
+  useEffect(() => {
+    setMedicines(DB.getInventory())
+  }, [])
+
+  // QR scan ya name se medicine dhundo
+  const handleQRSearch = (value: string) => {
+    setQrInput(value)
+    if (value.length < 3) return
+    
+    const found = medicines.find(m => 
+      m.qrCode?.toLowerCase() === value.toLowerCase() ||
+      m.name.toLowerCase().includes(value.toLowerCase())
+    )
+    
+    if (found) {
+      setSelectedType(found.type || 'Tablet')
+      setProductName(found.name)
+      setPrice(found.price.toString())
+    }
+  }
+
+  // Cart me add karo
+  const addToCart = () => {
+    if (!productName || !price) return alert('Product name aur price zaroori hai')
+    
+    const med = medicines.find(m => m.qrCode === qrInput || m.name === productName)
+    if (med && med.qty < qty) return alert(`Stock kam hai! Available: ${med.qty}`)
+
+    const newItem = {
+      id: Date.now(),
+      inventoryId: med?.id || null,
+      name: productName,
+      type: selectedType,
+      price: parseFloat(price),
+      qty: qty,
+      qrCode: qrInput || med?.qrCode || ''
+    }
+
+    setCart([...cart, newItem])
+    
+    // Reset form
+    setQrInput('')
+    setProductName('')
+    setPrice('')
+    setQty(1)
+  }
+
+  // Cart se remove
+  const removeFromCart = (id: number) => {
+    setCart(cart.filter(c => c.id !== id))
+  }
+
+  // Qty update
+  const updateCartQty = (id: number, newQty: number) => {
+    if (newQty <= 0) return removeFromCart(id)
+    setCart(cart.map(c => c.id === id ? {...c, qty: newQty} : c))
+  }
+
+  // Calculations
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0)
+  const discountAmount = discountType === '%' ? (subtotal * discount / 100) : discount
+  const gstAmount = gst ? ((subtotal - discountAmount) * 0.18) : 0
+  const total = subtotal - discountAmount + gstAmount
+  const balance = paidAmount - total
+
+  // Complete Bill
+  const completeBill = () => {
+    if (cart.length === 0) return alert('Cart khali hai')
+    
+    // Stock update karo inventory me
+    const updatedInventory = medicines.map(m => {
+      const cartItem = cart.find(c => c.inventoryId === m.id)
+      if (cartItem) {
+        return {...m, qty: m.qty - cartItem.qty}
+      }
+      return m
+    })
+    DB.saveInventory(updatedInventory)
+
+    // Bill save karo
+    const bill = {
+      id: Date.now(),
+      date: new Date().toISOString(),
+      customerName,
+      customerPhone,
+      items: cart,
+      subtotal,
+      discount: discountAmount,
+      gst: gstAmount,
+      total,
+      paymentMethod,
+      paidAmount,
+      balance,
+      billNo: `BILL-${Date.now()}`,
+      printSize
+    }
+    
+    const allBills = JSON.parse(localStorage.getItem('bills') || '[]')
+    localStorage.setItem('bills', JSON.stringify([bill, ...allBills]))
+
+    window.print()
+    
+    // Reset
+    setCart([])
+    setCustomerName('Walk-in Customer')
+    setCustomerPhone('')
+    setPaidAmount(0)
+    setDiscount(0)
+    alert('Bill Complete!')
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-black text-gray-900">Billing / Sale</h1>
+          <Link href="/dashboard" className="text-blue-600 hover:underline font-semibold">← Dashboard</Link>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Left Side */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Customer Details */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Customer Details</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <input
+                  value={customerName}
+                  onChange={e => setCustomerName(e.target.value)}
+                  placeholder="Walk-in Customer"
+                  className="border p-3 rounded"
+                />
+                <input
+                  value={customerPhone}
+                  onChange={e => setCustomerPhone(e.target.value)}
+                  placeholder="Phone Number"
+                  className="border p-3 rounded"
+                />
+              </div>
+            </div>
+
+            {/* Add Item - QR Support */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Add Item</h2>
+              
+              {/* QR Input */}
+              <div className="mb-4">
+                <input
+                  value={qrInput}
+                  onChange={e => handleQRSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addToCart()}
+                  placeholder="Scan QR ya Product Name likho + Enter"
+                  className="border p-3 rounded w-full text-lg"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1">💡 QR scan karte hi details auto fill ho jayengi</p>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <select
+                  value={selectedType}
+                  onChange={e => setSelectedType(e.target.value)}
+                  className="border p-3 rounded"
+                >
+                  <option>Tablet</option><option>Capsule</option><option>Syrup</option>
+                  <option>Injection</option><option>Drip</option><option>Cream</option>
+                  <option>Ointment</option><option>Drops</option><option>Other</option>
+                </select>
+                <input
+                  value={productName}
+                  onChange={e => setProductName(e.target.value)}
+                  placeholder="Product Name"
+                  className="border p-3 rounded"
+                />
+                <input
+                  type="number"
+                  value={price}
+                  onChange={e => setPrice(e.target.value)}
+                  placeholder="Price Rs."
+                  className="border p-3 rounded"
+                />
+                <input
+                  type="number"
+                  value={qty}
+                  onChange={e => setQty(parseInt(e.target.value) || 1)}
+                  placeholder="Qty"
+                  className="border p-3 rounded"
+                  min="1"
+                />
+              </div>
+              <button
+                onClick={addToCart}
+                className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold"
+              >
+                Add to Cart
+              </button>
+            </div>
+
+            {/* Cart Items */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Cart Items</h2>
+              {cart.length === 0 ? (
+                <p className="text-gray-400 text-center py-8">Cart khali hai</p>
+              ) : (
+                <div className="space-y-2">
+                  {cart.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 border rounded">
+                      <div className="flex-1">
+                        <p className="font-semibold">{item.name}</p>
+                        <p className="text-xs text-gray-500">{item.type} | Rs. {item.price}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          value={item.qty}
+                          onChange={e => updateCartQty(item.id, parseInt(e.target.value) || 0)}
+                          className="border p-1 rounded w-16 text-center"
+                          min="1"
+                        />
+                        <p className="font-bold w-20 text-right">Rs. {item.price * item.qty}</p>
+                        <button
+                          onClick={() => removeFromCart(item.id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Side - Bill Summary */}
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Bill Summary</h2>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span className="font-semibold">Rs. {subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>Discount:</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={discount}
+                      onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
+                      className="border p-1 rounded w-20"
+                    />
+                    <select value={discountType} onChange={e => setDiscountType(e.target.value)} className="border p-1 rounded">
+                      <option value="Rs">Rs.</option>
+                      <option value="%">%</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-between text-red-600">
+                  <span>-Rs. {discountAmount.toFixed(2)}</span>
+                </div>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={gst} onChange={e => setGst(e.target.checked)} />
+                  <span>GST 18%</span>
+                </label>
+                {gst && (
+                  <div className="flex justify-between text-sm">
+                    <span>GST:</span>
+                    <span>Rs. {gstAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xl font-black border-t pt-3">
+                  <span>Total:</span>
+                  <span>Rs. {total.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Payment Method</h2>
+              <select
+                value={paymentMethod}
+                onChange={e => setPaymentMethod(e.target.value)}
+                className="border p-3 rounded w-full mb-4"
+              >
+                <option>💵 Cash</option>
+                <option>📱 UPI</option>
+                <option>💳 Card</option>
+              </select>
+              <label className="text-sm font-semibold">Paid Amount Rs.</label>
+              <input
+                type="number"
+                value={paidAmount}
+                onChange={e => setPaidAmount(parseFloat(e.target.value) || 0)}
+                className="border p-3 rounded w-full mb-2"
+              />
+              {paidAmount > 0 && (
+                <p className="text-sm font-bold text-green-600">
+                  Balance: Rs. {balance.toFixed(2)}
+                </p>
+              )}
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h2 className="text-lg font-bold mb-4">Print Size</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setPrintSize('A4')}
+                  className={`p-3 rounded border-2 ${printSize === 'A4' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}
+                >
+                  A4
+                </button>
+                <button
+                  onClick={() => setPrintSize('80mm')}
+                  className={`p-3 rounded border-2 ${printSize === '80mm' ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}
+                >
+                  80mm Thermal
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={completeBill}
+              disabled={cart.length === 0}
+              className="w-full bg-green-600 text-white py-4 rounded-lg hover:bg-green-700 font-bold text-lg disabled:bg-gray-300"
+            >
+              Print Invoice
+            </button>
+          </div>
+        </div>
+
+        {/* Print Receipt */}
+        <div className="hidden print:block fixed inset-0 bg-white p-8">
+          <div className={printSize === 'A4' ? 'max-w-2xl mx-auto' : 'max-w-xs mx-auto'}>
+            <h1 className="text-2xl font-black text-center mb-2">MEDICAL STORE</h1>
+            <p className="text-center text-xs mb-4">Bill Receipt - {printSize}</p>
+            <div className="border-t border-b py-2 mb-2 text-xs">
+              <p>Bill No: BILL-{Date.now()}</p>
+              <p>Date: {new Date().toLocaleString()}</p>
+              <p>Customer: {customerName}</p>
+              {customerPhone && <p>Phone: {customerPhone}</p>}
+            </div>
+            <table className="w-full text-xs mb-4">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left">Item</th>
+                  <th className="text-right">Qty</th>
+                  <th className="text-right">Price</th>
+                  <th className="text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cart.map(item => (
+                  <tr key={item.id} className="border-b">
+                    <td>{item.name}</td>
+                    <td className="text-right">{item.qty}</td>
+                    <td className="text-right">{item.price}</td>
+                    <td className="text-right">{item.price * item.qty}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-right space-y-1 text-sm">
+              <p>Subtotal: Rs. {subtotal.toFixed(2)}</p>
+              <p>Discount: Rs. {discountAmount.toFixed(2)}</p>
+              {gst && <p>GST 18%: Rs. {gstAmount.toFixed(2)}</p>}
+              <p className="text-lg font-black border-t pt-1">Total: Rs. {total.toFixed(2)}</p>
+              <p>Paid: Rs. {paidAmount.toFixed(2)}</p>
+              <p>Balance: Rs. {balance.toFixed(2)}</p>
+            </div>
+            <p className="text-center text-xs mt-6">Thank you! Get well soon 🙏</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

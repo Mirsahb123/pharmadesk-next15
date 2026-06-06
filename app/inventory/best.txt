@@ -1,0 +1,403 @@
+"use client"
+import { DB } from '@/lib/storage'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import QRCode from 'react-qr-code'
+
+const ITEM_TYPES = [
+  { name: 'Tablet', icon: '💊', color: 'bg-blue-500' },
+  { name: 'Capsule', icon: '💊', color: 'bg-purple-500' },
+  { name: 'Syrup', icon: '🧪', color: 'bg-pink-500' },
+  { name: 'Injection', icon: '💉', color: 'bg-red-500' },
+  { name: 'Drip', icon: '🩸', color: 'bg-rose-500' },
+  { name: 'Cream', icon: '🧴', color: 'bg-yellow-500' },
+  { name: 'Ointment', icon: '🩹', color: 'bg-orange-500' },
+  { name: 'Drops', icon: '💧', color: 'bg-cyan-500' },
+  { name: 'Sugar Strip', icon: '📊', color: 'bg-lime-500' },
+  { name: 'BP Apparatus', icon: '🩺', color: 'bg-teal-500' },
+  { name: 'Sphygmomanometer', icon: '🩺', color: 'bg-teal-600' },
+  { name: 'Thermometer', icon: '🌡️', color: 'bg-amber-500' },
+  { name: 'Glucometer', icon: '📟', color: 'bg-emerald-500' },
+  { name: 'Bandage', icon: '🩹', color: 'bg-slate-500' },
+  { name: 'Syringe', icon: '💉', color: 'bg-indigo-500' },
+  { name: 'Mask', icon: '😷', color: 'bg-sky-500' },
+  { name: 'Sanitizer', icon: '🧴', color: 'bg-green-500' },
+  { name: 'Other', icon: '📦', color: 'bg-gray-500' },
+]
+
+export default function InventoryPage() {
+  const [medicines, setMedicines] = useState<any[]>([])
+  const [search, setSearch] = useState('')
+  const [filterType, setFilterType] = useState('All')
+  const [showQRPrint, setShowQRPrint] = useState(false)
+  const [showAllQRPrint, setShowAllQRPrint] = useState(false)
+  const [selectedMed, setSelectedMed] = useState<any>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  // Print Settings
+  const [columns, setColumns] = useState(10)
+  const [qrSize, setQrSize] = useState(15)
+  const [cuttingGap, setCuttingGap] = useState(2)
+  const [showIdText, setShowIdText] = useState(true)
+
+  const [linkQrScan, setLinkQrScan] = useState('')
+  const [linkToMed, setLinkToMed] = useState('')
+
+  const [form, setForm] = useState({
+    name: '', type: 'Tablet', price: '', packetQty: '', tabletsPerPacket: '',
+    expiry: '', qrCode: '', cost_price: ''
+  })
+
+  useEffect(() => {
+    setMedicines(DB.getInventory())
+  }, [])
+
+  const totalTablets = (parseInt(form.packetQty) || 0) * (parseInt(form.tabletsPerPacket) || 0)
+
+  const generateProductQR = () => {
+    const qr = `MED-${Date.now()}`
+    setForm({...form, qrCode: qr})
+  }
+
+  const addMedicine = () => {
+    if (!form.name ||!form.price) return alert('Name aur Price zaroori hai')
+    if (!form.qrCode) return alert('QR Code Generate dabao')
+    if (medicines.find(m => m.qrCode === form.qrCode)) return alert('Ye QR pehle se exist karta hai!')
+
+    const newMed = {
+      id: Date.now(),
+      name: form.name,
+      type: form.type,
+      price: parseFloat(form.price),
+      packetQty: parseInt(form.packetQty) || 0,
+      tabletsPerPacket: parseInt(form.tabletsPerPacket) || 0,
+      qty: totalTablets,
+      expiry: form.expiry,
+      qrCode: form.qrCode,
+      cost_price: parseFloat(form.cost_price) || 0
+    }
+
+    const updated = [...medicines, newMed]
+    DB.saveInventory(updated)
+    setMedicines(updated)
+    setForm({ name: '', type: 'Tablet', price: '', packetQty: '', tabletsPerPacket: '', expiry: '', qrCode: '', cost_price: '' })
+    alert('Medicine add ho gayi + QR code generate ho gaya')
+  }
+
+  const editMedicine = (med: any) => {
+    setForm({
+      name: med.name,
+      type: med.type || 'Tablet',
+      price: med.price.toString(),
+      packetQty: med.packetQty?.toString() || '',
+      tabletsPerPacket: med.tabletsPerPacket?.toString() || '',
+      expiry: med.expiry,
+      qrCode: med.qrCode,
+      cost_price: med.cost_price?.toString() || ''
+    })
+    setEditingId(med.id)
+  }
+
+  const updateMedicine = () => {
+    if (!form.name ||!form.price) return alert('Name aur Price zaroori hai')
+
+    const updated = medicines.map(m =>
+      m.id === editingId
+ ? {
+     ...m,
+           name: form.name,
+           type: form.type,
+           price: parseFloat(form.price),
+           packetQty: parseInt(form.packetQty) || 0,
+           tabletsPerPacket: parseInt(form.tabletsPerPacket) || 0,
+           qty: totalTablets,
+           expiry: form.expiry,
+           qrCode: form.qrCode,
+           cost_price: parseFloat(form.cost_price) || 0
+         }
+        : m
+    )
+    DB.saveInventory(updated)
+    setMedicines(updated)
+    setForm({ name: '', type: 'Tablet', price: '', packetQty: '', tabletsPerPacket: '', expiry: '', qrCode: '', cost_price: '' })
+    setEditingId(null)
+    alert('Medicine update ho gayi')
+  }
+
+  const deleteMedicine = (id: number) => {
+    if (!confirm('Delete karna hai?')) return
+    const updated = medicines.filter(m => m.id!== id)
+    DB.saveInventory(updated)
+    setMedicines(updated)
+  }
+
+  const linkQRToMedicine = () => {
+    if(!linkQrScan ||!linkToMed) return alert('QR aur Medicine dono select karo')
+    const updated = medicines.map(m => m.id.toString() === linkToMed? {...m, qrCode: linkQrScan} : m)
+    DB.saveInventory(updated)
+    setMedicines(updated)
+    alert(`QR ${linkQrScan} ab medicine se link ho gaya`)
+    setLinkQrScan(''); setLinkToMed('')
+  }
+
+  const filteredMeds = medicines.filter(m => {
+    const matchType = filterType === 'All' || m.type === filterType
+    const matchSearch = m.name.toLowerCase().includes(search.toLowerCase()) ||
+    m.qrCode?.toLowerCase().includes(search.toLowerCase())
+    return matchType && matchSearch
+  })
+
+  const categoryStats = ITEM_TYPES.map(type => ({
+...type,
+    count: medicines.filter(i => i.type === type.name).length,
+    stock: medicines.filter(i => i.type === type.name).reduce((s, i) => s + (i.qty || 0), 0)
+  }))
+
+  const openSinglePrint = (med: any) => {
+    setSelectedMed(med)
+    setShowQRPrint(true)
+  }
+
+  const openAllQRPrint = () => {
+    setShowAllQRPrint(true)
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-black text-gray-900">Inventory + Product QR</h1>
+          <div className="flex gap-3">
+            <button onClick={openAllQRPrint} className="bg-green-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-700">
+              📄 Print All QR
+            </button>
+            <Link href="/dashboard" className="text-blue-600 hover:underline font-semibold">← Dashboard</Link>
+          </div>
+        </div>
+
+        <div className="bg-yellow-50 p-4 rounded-lg mb-6 border-2 border-yellow-300">
+          <h3 className="font-bold text-yellow-900 mb-2">🔗 Blank QR ko Medicine se Link Karo</h3>
+          <div className="grid md:grid-cols-3 gap-3">
+            <input value={linkQrScan} onChange={e=>setLinkQrScan(e.target.value)} placeholder="MED-123... paste karo" className="border p-2 rounded" />
+            <select value={linkToMed} onChange={e=>setLinkToMed(e.target.value)} className="border p-2 rounded">
+              <option value="">Medicine Select Karo</option>
+              {medicines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <button onClick={linkQRToMedicine} className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 font-semibold">Link Karo</button>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border mb-6">
+          <h2 className="text-xl font-bold mb-4">{editingId? 'Edit Medicine' : 'Add New Medicine'}</h2>
+          <div className="grid md:grid-cols-7 gap-3">
+            <input value={form.name} onChange={e=>setForm({...form, name: e.target.value})} placeholder="Medicine Name" className="border p-2 rounded" />
+            <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="border p-2 rounded">
+              {ITEM_TYPES.map(t => <option key={t.name} value={t.name}>{t.icon} {t.name}</option>)}
+            </select>
+            <input type="number" value={form.price} onChange={e=>setForm({...form, price: e.target.value})} placeholder="Price/Tablet (Rs.)" className="border p-2 rounded" />
+            <input type="number" value={form.packetQty} onChange={e=>setForm({...form, packetQty: e.target.value})} placeholder="Packets" className="border p-2 rounded" />
+            <input type="number" value={form.tabletsPerPacket} onChange={e=>setForm({...form, tabletsPerPacket: e.target.value})} placeholder="Tabs/Packet" className="border p-2 rounded" />
+            <input type="date" value={form.expiry} onChange={e=>setForm({...form, expiry: e.target.value})} className="border p-2 rounded" />
+            <div className="flex gap-2">
+              <input value={form.qrCode} onChange={e=>setForm({...form, qrCode: e.target.value})} placeholder="QR Code" className="border p-2 rounded flex-1" />
+              <button onClick={generateProductQR} className="bg-purple-600 text-white px-3 py-2 rounded hover:bg-purple-700">Auto</button>
+            </div>
+          </div>
+          <div className="mt-3 text-sm font-semibold text-green-600">
+            Total Tablets: {totalTablets} = {form.packetQty || 0} Packets × {form.tabletsPerPacket || 0} Tabs
+          </div>
+          <button onClick={editingId? updateMedicine : addMedicine} className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold">
+            {editingId? 'Update Medicine' : 'Add Medicine + Generate QR'}
+          </button>
+          {editingId && (
+            <button onClick={() => {setEditingId(null); setForm({ name: '', type: 'Tablet', price: '', packetQty: '', tabletsPerPacket: '', expiry: '', qrCode: '', cost_price: '' })}} className="mt-4 ml-3 bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 font-semibold">
+              Cancel
+            </button>
+          )}
+        </div>
+
+        {/* Category Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+          {categoryStats.map(cat => (
+            <div
+              key={cat.name}
+              onClick={() => setFilterType(cat.name)}
+              className={`${cat.color} p-4 rounded-2xl shadow-lg text-white cursor-pointer hover:scale-105 transition transform ${filterType === cat.name? 'ring-4 ring-yellow-400' : ''}`}
+            >
+              <div className="text-3xl mb-2">{cat.icon}</div>
+              <p className="text-xs opacity-90 font-semibold">{cat.name}</p>
+              <p className="text-2xl font-black">{cat.count}</p>
+              <p className="text-xs opacity-80">Stock: {cat.stock}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
+          <div className="flex flex-wrap gap-3 mb-4">
+            <select value={filterType} onChange={e => setFilterType(e.target.value)} className="border p-2 rounded">
+              <option value="All">📦 All Categories</option>
+              {ITEM_TYPES.map(t => <option key={t.name} value={t.name}>{t.icon} {t.name}</option>)}
+            </select>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or QR..." className="border p-2 rounded flex-1" />
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2">
+                  <th className="text-left p-3">Name</th>
+                  <th className="text-left p-3">Type</th>
+                  <th className="text-left p-3">QR Code</th>
+                  <th className="text-left p-3">Price/Tab</th>
+                  <th className="text-left p-3">Packets</th>
+                  <th className="text-left p-3">Tabs/Pkt</th>
+                  <th className="text-left p-3">Total Tabs</th>
+                  <th className="text-left p-3">Expiry</th>
+                  <th className="text-left p-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMeds.map(m => {
+                  const typeInfo = ITEM_TYPES.find(t => t.name === m.type)
+                  return (
+                    <tr key={m.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-medium">{m.name}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs text-white ${typeInfo?.color}`}>
+                          {typeInfo?.icon} {m.type}
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono text-xs text-blue-600">{m.qrCode}</td>
+                      <td className="p-3 font-bold text-green-600">Rs. {m.price}</td>
+                      <td className="p-3">{m.packetQty || 0}</td>
+                      <td className="p-3">{m.tabletsPerPacket || 0}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-sm font-bold ${m.qty < 10? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                          {m.qty}
+                        </span>
+                      </td>
+                      <td className="p-3 text-sm">{m.expiry || '-'}</td>
+                      <td className="p-3 flex gap-2">
+                        <button onClick={() => editMedicine(m)} className="bg-yellow-600 text-white px-3 py-1 rounded text-sm hover:bg-yellow-700">Edit</button>
+                        <button onClick={() => openSinglePrint(m)} className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">Print QR</button>
+                        <button onClick={() => deleteMedicine(m.id)} className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700">Delete</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Single Medicine Print - Sirf 1 QR */}
+        {showQRPrint && selectedMed && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowQRPrint(false)}>
+            <div className="bg-white p-6 rounded-xl max-w-2xl w-full" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4 print:hidden">
+                <h3 className="text-xl font-bold">Print QR - {selectedMed.name}</h3>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <label className="text-sm">Size:</label>
+                  <input type="range" min="20" max="50" value={qrSize} onChange={e=>setQrSize(parseInt(e.target.value))} />
+                  <span className="text-sm">{qrSize}mm</span>
+                  <label className="text-sm flex items-center gap-1">
+                    <input type="checkbox" checked={showIdText} onChange={e=>setShowIdText(e.target.checked)} />
+                    Name
+                  </label>
+                  <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Print</button>
+                  <button onClick={() => setShowQRPrint(false)} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Close</button>
+                </div>
+              </div>
+
+              <div className="print:m-0 flex justify-center">
+                <div className="border border-dashed border-gray-400 p-4 text-center">
+                  <div className="bg-white mb-2 flex items-center justify-center" style={{width: `${qrSize}mm`, height: `${qrSize}mm`, margin: '0 auto'}}>
+                    <QRCode
+                      value={selectedMed.qrCode}
+                      size={qrSize * 3.78}
+                      style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                    />
+                  </div>
+                  {showIdText && (
+                    <>
+                      <p className="text-sm font-bold">{selectedMed.name}</p>
+                      <p className="text-xs font-mono text-blue-600">{selectedMed.qrCode}</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Print All Medicines - Sab ka 1-1 QR */}
+        {showAllQRPrint && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowAllQRPrint(false)}>
+            <div className="bg-white p-6 rounded-xl max-w-6xl w-full max-h- overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4 print:hidden">
+                <h3 className="text-xl font-bold">Print All Medicines QR - A4</h3>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <label className="text-sm">Cols:</label>
+                  <select value={columns} onChange={e=>setColumns(parseInt(e.target.value))} className="border p-1 rounded">
+                    <option value="5">5</option><option value="8">8</option><option value="10">10</option><option value="12">12</option>
+                  </select>
+                  <label className="text-sm">Size:</label>
+                  <input type="range" min="10" max="30" value={qrSize} onChange={e=>setQrSize(parseInt(e.target.value))} />
+                  <span className="text-sm">{qrSize}mm</span>
+                  <label className="text-sm">Gap:</label>
+                  <input type="range" min="0" max="5" value={cuttingGap} onChange={e=>setCuttingGap(parseInt(e.target.value))} />
+                  <span className="text-sm">{cuttingGap}mm</span>
+                  <label className="text-sm flex items-center gap-1">
+                    <input type="checkbox" checked={showIdText} onChange={e=>setShowIdText(e.target.checked)} />
+                    Show Name
+                  </label>
+                  <button onClick={() => window.print()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Print A4</button>
+                  <button onClick={() => setShowAllQRPrint(false)} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Close</button>
+                </div>
+              </div>
+
+              <div className="print:m-0">
+                <style jsx>{`
+                  @media print {
+                    @page { size: A4; margin: 5mm; }
+            .qr-grid-all {
+                      display: grid;
+                      grid-template-columns: repeat(${columns}, 1fr);
+                      gap: ${cuttingGap}mm;
+                    }
+            .qr-item-all {
+                      border: 1px dashed #ccc;
+                      padding: 2mm;
+                      text-align: center;
+                      page-break-inside: avoid;
+                    }
+                  }
+                `}</style>
+
+                <div className="qr-grid-all grid gap-2" style={{gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: `${cuttingGap}mm`}}>
+                  {medicines.map((med) => (
+                    <div key={med.id} className="qr-item-all border border-dashed border-gray-300 p-2 text-center">
+                      <div className="bg-white w-full aspect-square mb-1 flex items-center justify-center" style={{width: `${qrSize}mm`, height: `${qrSize}mm`, margin: '0 auto'}}>
+                        <QRCode
+                          value={med.qrCode}
+                          size={qrSize * 3.78}
+                          style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                        />
+                      </div>
+                      {showIdText && (
+                        <>
+                          <p className="text-[7px] font-bold truncate">{med.name}</p>
+                          <p className="text-[6px] font-mono text-blue-600">{med.qrCode}</p>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

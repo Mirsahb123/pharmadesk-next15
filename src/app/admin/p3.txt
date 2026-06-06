@@ -1,0 +1,585 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { mockMenuItems } from "@/lib/mockData";
+import type { MenuItem } from "@/types";
+import Link from "next/link";
+
+type StockItem = { id: string; name: string; weight?: string; quantity: number; price: number; date: string; time: string };
+type StaffMember = { id: string; name: string; cnic: string; phone: string; role: "Waiter" | "Sweeper" | "Chef" | "Cashier" | "Rider"; salary: number; advanceTaken: number; advances: { amount: number; date: string; reason: string }[]; joinDate: string };
+type Table = { id: number; number: number; status: "vacant" | "occupied" | "reserved"; currentOrder?: string; customers: number };
+type RefundRequest = { orderId: string; customerName: string; customerPhone: string; amount: number; paymentMethod: string; reason: string; status: "requested" | "approved" | "processed" | "completed" | "rejected"; requestedAt: string };
+type DeliveryArea = { id: string; city: string; village: string; area: string; subArea?: string; km: number };
+type Order = { id: string; customerName: string; customerPhone: string; items: any[]; subtotal: number; deliveryCharge: number; total: number; deliveryArea: DeliveryArea; fullAddress: string; paymentMethod: string; senderName: string; paymentScreenshot: string; status: string; createdAt: string; orderType?: string; tableNumber?: string };
+
+export default function AdminPage() {
+  const [activeView, setActiveView] = useState("dashboard");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [refunds, setRefunds] = useState<RefundRequest[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
+  const [kmRate, setKmRate] = useState(30);
+  const [minCharge, setMinCharge] = useState(100);
+  const [showAddStock, setShowAddStock] = useState(false);
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [showAddArea, setShowAddArea] = useState(false);
+  const [newStock, setNewStock] = useState({ name: "", weight: "", quantity: "", price: "" });
+  const [newStaff, setNewStaff] = useState({ name: "", cnic: "", phone: "", role: "Waiter", salary: "" });
+  const [newArea, setNewArea] = useState({ city: "", village: "", area: "", subArea: "", km: "" });
+
+  const [menuCategory, setMenuCategory] = useState("Breakfast");
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showEditMenu, setShowEditMenu] = useState(false);
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [newMenuItem, setNewMenuItem] = useState({
+    name: "",
+    category: "Breakfast",
+    description: "",
+    image: "",
+    temp: "hot" as "hot" | "cold",
+    weight1: "",
+    price1: "",
+    weight2: "",
+    price2: "",
+    weight3: "",
+    price3: "",
+    discountValue: "",
+    discountType: "percentage" as "percentage" | "fixed"
+  });
+
+  const menuCategories = ["Breakfast", "Biryani & Rice", "Curries/Gravy", "Tandoori & BBQ", "Snacks & Burgers", "Drinks & Desserts"];
+
+  useEffect(() => {
+    loadData();
+    initTables();
+    const storedMenu = localStorage.getItem('darbar_menuItems');
+    if (storedMenu) {
+      setMenuItems(JSON.parse(storedMenu));
+    } else {
+      setMenuItems(mockMenuItems);
+      localStorage.setItem('darbar_menuItems', JSON.stringify(mockMenuItems));
+    }
+    const interval = setInterval(loadData, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadData = () => {
+    const deliveryOrders = JSON.parse(localStorage.getItem('darbar_orders') || '[]');
+    const dineInOrders = JSON.parse(localStorage.getItem('dineInOrders') || '[]');
+
+    const allOrders = [
+     ...deliveryOrders,
+     ...dineInOrders.map((o: any) => ({
+        id: o.id.toString(),
+        customerName: `Table ${o.tableNumber}`,
+        customerPhone: '-',
+        items: o.items,
+        subtotal: o.subtotal,
+        deliveryCharge: 0,
+        total: o.total,
+        deliveryArea: { city: 'Dine In', village: `Table ${o.tableNumber}`, area: '', km: 0 },
+        fullAddress: `Table ${o.tableNumber} - Dine In`,
+        paymentMethod: 'cash',
+        senderName: '-',
+        paymentScreenshot: '',
+        status: o.status.toLowerCase(),
+        createdAt: new Date(o.date + ' ' + o.time).toISOString(),
+        orderType: 'Dine In',
+        tableNumber: o.tableNumber
+      }))
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    setOrders(allOrders);
+    setStockItems(JSON.parse(localStorage.getItem('darbar_stock') || '[]'));
+    setStaff(JSON.parse(localStorage.getItem('darbar_staff') || '[]'));
+    setRefunds(JSON.parse(localStorage.getItem('darbar_refunds') || '[]'));
+    setDeliveryAreas(JSON.parse(localStorage.getItem('darbar_delivery_areas') || '[]'));
+    setKmRate(parseInt(localStorage.getItem('darbar_km_rate') || '30'));
+    setMinCharge(parseInt(localStorage.getItem('darbar_min_charge') || '100'));
+  };
+
+  const initTables = () => {
+    const defaultTables: Table[] = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, number: i + 1, status: "vacant", customers: 0 }));
+    setTables(JSON.parse(localStorage.getItem('darbar_tables') || JSON.stringify(defaultTables)));
+  };
+
+  const pendingOrders = orders.filter(o => o.status === 'pending').length;
+  const todaysRevenue = orders.filter(o => new Date(o.createdAt).toDateString() === new Date().toDateString() && o.status!== 'cancelled').reduce((sum, o) => sum + o.total, 0);
+  const activeMenuItems = menuItems.filter(m => m.isAvailable).length;
+  const vacantTables = tables.filter(t => t.status === 'vacant').length;
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (isEdit && editingItem) {
+          setEditingItem({...editingItem, image: reader.result as string});
+        } else {
+          setNewMenuItem({...newMenuItem, image: reader.result as string});
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAddMenuItem = () => {
+    if (!newMenuItem.name ||!newMenuItem.description ||!newMenuItem.image ||!newMenuItem.price1) {
+      return alert('Name, Description, Image aur kam az kam 1 Price zaroori hai');
+    }
+
+    const weightOptions = [];
+    if (newMenuItem.weight1 && newMenuItem.price1) weightOptions.push({ weight: newMenuItem.weight1, price: parseInt(newMenuItem.price1) });
+    if (newMenuItem.weight2 && newMenuItem.price2) weightOptions.push({ weight: newMenuItem.weight2, price: parseInt(newMenuItem.price2) });
+    if (newMenuItem.weight3 && newMenuItem.price3) weightOptions.push({ weight: newMenuItem.weight3, price: parseInt(newMenuItem.price3) });
+
+    const newItem: MenuItem = {
+      id: `item-${Date.now()}`,
+      name: newMenuItem.name,
+      category: newMenuItem.category,
+      description: newMenuItem.description,
+      image: newMenuItem.image,
+      temp: newMenuItem.temp,
+      weightOptions,
+      isAvailable: true,
+      ratings: [],
+      averageRating: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      discount: newMenuItem.discountValue? {
+        type: newMenuItem.discountType,
+        value: parseInt(newMenuItem.discountValue),
+        isActive: true
+      } : undefined
+    };
+
+    const updated = [...menuItems, newItem];
+    setMenuItems(updated);
+    localStorage.setItem('darbar_menuItems', JSON.stringify(updated));
+    setShowAddMenu(false);
+    setNewMenuItem({
+      name: "", category: "Breakfast", description: "", image: "", temp: "hot",
+      weight1: "", price1: "", weight2: "", price2: "", weight3: "", price3: "",
+      discountValue: "", discountType: "percentage"
+    });
+  };
+
+  const handleEditMenuItem = () => {
+    if (!editingItem) return;
+    const updated = menuItems.map(item => item.id === editingItem.id? editingItem : item);
+    setMenuItems(updated);
+    localStorage.setItem('darbar_menuItems', JSON.stringify(updated));
+    setShowEditMenu(false);
+    setEditingItem(null);
+  };
+
+  const handleDeleteMenuItem = (id: string) => {
+    if (!confirm('Delete this item?')) return;
+    const updated = menuItems.filter(item => item.id!== id);
+    setMenuItems(updated);
+    localStorage.setItem('darbar_menuItems', JSON.stringify(updated));
+  };
+
+  const handleToggleAvailability = (id: string) => {
+    const updated = menuItems.map(item => 
+      item.id === id? {...item, isAvailable:!item.isAvailable} : item
+    );
+    setMenuItems(updated);
+    localStorage.setItem('darbar_menuItems', JSON.stringify(updated));
+  };
+
+  const handleToggleDiscount = (id: string) => {
+    const updated = menuItems.map(item => {
+      if (item.id === id) {
+        if (item.discount) {
+          return {...item, discount: {...item.discount, isActive:!item.discount.isActive}};
+        }
+      }
+      return item;
+    });
+    setMenuItems(updated);
+    localStorage.setItem('darbar_menuItems', JSON.stringify(updated));
+  };
+
+  const handleAddStock = () => {
+    if (!newStock.name ||!newStock.quantity ||!newStock.price) return alert('Fill all fields');
+    const stock: StockItem = { id: Date.now().toString(), name: newStock.name, weight: newStock.weight || undefined, quantity: parseInt(newStock.quantity), price: parseInt(newStock.price), date: new Date().toISOString().split('T')[0], time: new Date().toLocaleTimeString() };
+    const updated = [...stockItems, stock];
+    setStockItems(updated);
+    localStorage.setItem('darbar_stock', JSON.stringify(updated));
+    setShowAddStock(false);
+    setNewStock({ name: "", weight: "", quantity: "", price: "" });
+  };
+
+  const handleAddStaff = () => {
+    if (!newStaff.name ||!newStaff.cnic ||!newStaff.phone ||!newStaff.salary) return alert('Fill all fields');
+    const member: StaffMember = { id: Date.now().toString(), name: newStaff.name, cnic: newStaff.cnic, phone: newStaff.phone, role: newStaff.role as any, salary: parseInt(newStaff.salary), advanceTaken: 0, advances: [], joinDate: new Date().toISOString() };
+    const updated = [...staff, member];
+    setStaff(updated);
+    localStorage.setItem('darbar_staff', JSON.stringify(updated));
+    setShowAddStaff(false);
+    setNewStaff({ name: "", cnic: "", phone: "", role: "Waiter", salary: "" });
+  };
+
+  const handleAddArea = () => {
+    if (!newArea.city ||!newArea.village ||!newArea.area ||!newArea.km) return alert('Fill all fields except Sub-Area');
+    const area: DeliveryArea = { id: Date.now().toString(), city: newArea.city, village: newArea.village, area: newArea.area, subArea: newArea.subArea || undefined, km: parseInt(newArea.km) };
+    const updated = [...deliveryAreas, area];
+    setDeliveryAreas(updated);
+    localStorage.setItem('darbar_delivery_areas', JSON.stringify(updated));
+    setShowAddArea(false);
+    setNewArea({ city: "", village: "", area: "", subArea: "", km: "" });
+  };
+
+  const handleDeleteArea = (id: string) => {
+    if (!confirm('Delete this area?')) return;
+    const updated = deliveryAreas.filter(a => a.id!== id);
+    setDeliveryAreas(updated);
+    localStorage.setItem('darbar_delivery_areas', JSON.stringify(updated));
+  };
+
+  const updateOrderStatus = (orderId: string, status: string) => {
+    const updated = orders.map(o => o.id === orderId? {...o, status: status as any } : o);
+    setOrders(updated);
+
+    const deliveryOrders = updated.filter(o => o.orderType!== 'Dine In');
+    localStorage.setItem('darbar_orders', JSON.stringify(deliveryOrders));
+
+    const dineInOrders = updated.filter(o => o.orderType === 'Dine In').map(o => ({
+      id: parseInt(o.id),
+      tableNumber: o.tableNumber,
+      orderType: "Dine In",
+      items: o.items,
+      subtotal: o.subtotal,
+      tax: o.subtotal * 0.13,
+      total: o.total,
+      status: status.charAt(0).toUpperCase() + status.slice(1),
+      time: new Date(o.createdAt).toLocaleTimeString(),
+      date: new Date(o.createdAt).toLocaleDateString()
+    }));
+    localStorage.setItem('dineInOrders', JSON.stringify(dineInOrders));
+  };
+
+  const updateKmRate = (rate: number) => {
+    setKmRate(rate);
+    localStorage.setItem('darbar_km_rate', rate.toString());
+  };
+
+  const updateMinCharge = (charge: number) => {
+    setMinCharge(charge);
+    localStorage.setItem('darbar_min_charge', charge.toString());
+  };
+
+  const sendWhatsApp = (phone: string, name: string) => {
+    const msg = `Assalam o Alaikum ${name}! 👋\n\nDarbar Restaurant se special offer:\n🎉 20% OFF on all Karahi\n🚚 Free Delivery on orders above Rs. 1000\n\nOrder now: [Your Website Link]`;
+    window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const customers = orders.reduce((acc: any[], order) => {
+    if (order.orderType === 'Dine In') return acc;
+    const existing = acc.find(c => c.phone === order.customerPhone);
+    if (existing) {
+      existing.totalOrders += 1;
+      existing.totalSpent += order.total;
+      existing.lastOrder = order.createdAt;
+      existing.orders.push(order);
+    } else {
+      acc.push({
+        name: order.customerName,
+        phone: order.customerPhone,
+        totalOrders: 1,
+        totalSpent: order.total,
+        orders: [order],
+        firstOrder: order.createdAt,
+        lastOrder: order.createdAt,
+        address: order.fullAddress,
+        area: `${order.deliveryArea?.city}, ${order.deliveryArea?.area}`
+      });
+    }
+    return acc;
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#0F0F0F] text-white">
+      <div className="bg-[#1A1A1A] border-b border-[#D4AF37]/20 p-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-[#D4AF37]">👑 Darbar Admin Panel</h1>
+          <Link href="/" className="text-[#D4AF37] hover:text-[#F4C430]">← Back to Site</Link>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto p-6">
+        {activeView === "dashboard" && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                <p className="text-gray-400 text-sm">Total Orders</p>
+                <p className="text-3xl font-bold text-white">{orders.length}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-red-500/20">
+                <p className="text-gray-400 text-sm">Pending Orders</p>
+                <p className="text-3xl font-bold text-red-400">{pendingOrders}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-green-500/20">
+                <p className="text-gray-400 text-sm">Today Revenue</p>
+                <p className="text-3xl font-bold text-green-400">Rs. {todaysRevenue}</p>
+              </div>
+              <div className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                <p className="text-gray-400 text-sm">Total Customers</p>
+                <p className="text-3xl font-bold text-[#D4AF37]">{customers.length}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div onClick={() => setActiveView("orders")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📦</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Orders Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Customer details + Payment screenshot</p>
+                <p className="text-red-400 font-bold">{pendingOrders} Pending</p>
+              </div>
+
+              <div onClick={() => setActiveView("customers")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">👥</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Customers</h3>
+                <p className="text-gray-400 text-sm mb-3">Name, Phone, Address + Send WhatsApp</p>
+                <p className="text-[#D4AF37] font-bold">{customers.length} Customers</p>
+              </div>
+
+              <div onClick={() => setActiveView("areas")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📍</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Delivery Areas</h3>
+                <p className="text-gray-400 text-sm mb-3">Set delivery rate & add areas</p>
+                <p className="text-[#D4AF37] font-bold">{deliveryAreas.length} Areas</p>
+              </div>
+
+              <div onClick={() => setActiveView("stock")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">📦</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Stock Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Track inventory</p>
+                <p className="text-[#D4AF37] font-bold">{stockItems.length} Items</p>
+              </div>
+
+              <div onClick={() => setActiveView("staff")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">👥</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Staff & Salary</h3>
+                <p className="text-gray-400 text-sm mb-3">Manage staff & advances</p>
+                <p className="text-[#D4AF37] font-bold">{staff.length} Staff</p>
+              </div>
+
+              <div onClick={() => setActiveView("tables")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">🪑</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Table Management</h3>
+                <p className="text-gray-400 text-sm mb-3">See vacant/occupied tables</p>
+                <p className="text-green-400 font-bold">{vacantTables} Vacant</p>
+              </div>
+
+              <div onClick={() => setActiveView("menu")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">🍽️</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Menu Management</h3>
+                <p className="text-gray-400 text-sm mb-3">Add, Edit menu items</p>
+                <p className="text-[#D4AF37] font-bold">{menuItems.length} Items</p>
+              </div>
+
+              <div onClick={() => setActiveView("refunds")} className="bg-[#1A1A1A] p-6 rounded-lg border border-[#D4AF37]/20 hover:border-[#D4AF37] cursor-pointer transition-all">
+                <div className="text-4xl mb-3">💰</div>
+                <h3 className="text-xl font-bold text-[#D4AF37] mb-2">Refund Requests</h3>
+                <p className="text-gray-400 text-sm mb-3">Approve & process refunds</p>
+                <p className="text-yellow-400 font-bold">{refunds.filter(r=>r.status==='requested').length} Pending</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeView!== "dashboard" && (
+          <button onClick={() => {setActiveView("dashboard"); loadData();}} className="text-[#D4AF37] mb-4 hover:text-[#F4C430]">← Back to Dashboard</button>
+        )}
+{activeView === "menu" && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-[#D4AF37]">Menu Management</h2>
+              <button onClick={() => setShowAddMenu(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg">+ Add Item</button>
+            </div>
+
+            <div className="bg-black/40 backdrop-blur-md rounded-xl p-3 mb-6 border border-[#D4AF37]/20">
+              <div className="flex flex-wrap gap-2">
+                {menuCategories.map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => setMenuCategory(category)}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                      menuCategory === category
+                   ? "bg-[#D4AF37] text-black"
+                        : "bg-white/10 text-gray-300 hover:bg-white/20"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {menuItems.filter(item => item.category === menuCategory).map(item => (
+                <div key={item.id} className="bg-[#1A1A1A] p-4 rounded-lg border border-[#D4AF37]/20">
+                  <img src={item.image} alt={item.name} className="w-full h-40 object-cover rounded mb-3" />
+                  <h3 className="text-lg font-bold text-white">{item.name}</h3>
+                  <p className="text-gray-400 text-sm mb-2">{item.description}</p>
+                  
+                  <div className="space-y-1 mb-3">
+                    {item.weightOptions?.map((wp, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span className="text-gray-300">{wp.weight}</span>
+                        <span className="text-[#D4AF37] font-bold">Rs. {wp.price}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {item.discount?.isActive && (
+                    <div className="bg-red-600 text-white text-xs px-2 py-1 rounded mb-2 inline-block">
+                      {item.discount.value}{item.discount.type === "percentage"? "%" : " Rs"} OFF
+                    </div>
+                  )}
+
+                  <p className={`text-sm mb-3 ${item.isAvailable? 'text-green-400' : 'text-red-400'}`}>
+                    {item.isAvailable? '✅ Available' : '❌ Hidden'}
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => {setEditingItem(item); setShowEditMenu(true);}} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">Edit</button>
+                    <button onClick={() => handleDeleteMenuItem(item.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Delete</button>
+                    <button onClick={() => handleToggleAvailability(item.id)} className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm">
+                      {item.isAvailable? 'Hide' : 'Show'}
+                    </button>
+                    <button onClick={() => handleToggleDiscount(item.id)} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm" disabled={!item.discount}>
+                      {item.discount?.isActive? 'Remove Off' : 'Apply Off'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {showAddMenu && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 overflow-y-auto">
+                <div className="bg-[#1A1A1A] p-6 rounded-lg w-full max-w-2xl my-8">
+                  <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Add New Menu Item</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="text" placeholder="Item Name *" value={newMenuItem.name} onChange={(e) => setNewMenuItem({...newMenuItem, name: e.target.value})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" />
+                    <select value={newMenuItem.category} onChange={(e) => setNewMenuItem({...newMenuItem, category: e.target.value})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30">
+                      {menuCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                    <textarea placeholder="Description *" value={newMenuItem.description} onChange={(e) => setNewMenuItem({...newMenuItem, description: e.target.value})} className="col-span-2 bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" rows={2} />
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="col-span-2 bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" />
+                    {newMenuItem.image && <img src={newMenuItem.image} alt="Preview" className="col-span-2 h-32 object-cover rounded" />}
+                    <select value={newMenuItem.temp} onChange={(e) => setNewMenuItem({...newMenuItem, temp: e.target.value as any})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30">
+                      <option value="hot">Hot</option>
+                      <option value="cold">Cold</option>
+                    </select>
+                    <div className="col-span-2"></div>
+                    <input type="text" placeholder="Weight 1 (e.g. 1 Plate) *" value={newMenuItem.weight1} onChange={(e) => setNewMenuItem({...newMenuItem, weight1: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="number" placeholder="Price 1 *" value={newMenuItem.price1} onChange={(e) => setNewMenuItem({...newMenuItem, price1: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="text" placeholder="Weight 2 (Optional)" value={newMenuItem.weight2} onChange={(e) => setNewMenuItem({...newMenuItem, weight2: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="number" placeholder="Price 2" value={newMenuItem.price2} onChange={(e) => setNewMenuItem({...newMenuItem, price2: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="text" placeholder="Weight 3 (Optional)" value={newMenuItem.weight3} onChange={(e) => setNewMenuItem({...newMenuItem, weight3: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="number" placeholder="Price 3" value={newMenuItem.price3} onChange={(e) => setNewMenuItem({...newMenuItem, price3: e.target.value})} className="bg-[#0F0F0F] text-white p-2 rounded border border-[#D4AF37]/30" />
+                    <input type="number" placeholder="Discount Value (Optional)" value={newMenuItem.discountValue} onChange={(e) => setNewMenuItem({...newMenuItem, discountValue: e.target.value})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" />
+                    <select value={newMenuItem.discountType} onChange={(e) => setNewMenuItem({...newMenuItem, discountType: e.target.value as any})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30">
+                      <option value="percentage">Percentage %</option>
+                      <option value="fixed">Fixed Rs</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={() => setShowAddMenu(false)} className="flex-1 bg-gray-600 py-2 rounded">Cancel</button>
+                    <button onClick={handleAddMenuItem} className="flex-1 bg-green-600 py-2 rounded">Add Item</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showEditMenu && editingItem && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 overflow-y-auto">
+                <div className="bg-[#1A1A1A] p-6 rounded-lg w-full max-w-2xl my-8">
+                  <h3 className="text-xl font-bold text-[#D4AF37] mb-4">Edit Menu Item</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="text" placeholder="Item Name" value={editingItem.name} onChange={(e) => setEditingItem({...editingItem, name: e.target.value})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" />
+                    <select value={editingItem.category} onChange={(e) => setEditingItem({...editingItem, category: e.target.value})} className="bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30">
+                      {menuCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                    <textarea placeholder="Description" value={editingItem.description} onChange={(e) => setEditingItem({...editingItem, description: e.target.value})} className="col-span-2 bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" rows={2} />
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, true)} className="col-span-2 bg-[#0F0F0F] text-white p-3 rounded border border-[#D4AF37]/30" />
+                    {editingItem.image && <img src={editingItem.image} alt="Preview" className="col-span-2 h-32 object-cover rounded" />}
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={() => setShowEditMenu(false)} className="flex-1 bg-gray-600 py-2 rounded">Cancel</button>
+                    <button onClick={handleEditMenuItem} className="flex-1 bg-blue-600 py-2 rounded">Update Item</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "refunds" && (
+          <div>
+            <h2 className="text-2xl font-bold text-[#D4AF37] mb-4">Refund Requests</h2>
+            <div className="space-y-4">
+              {refunds.length === 0? (
+                <p className="text-gray-400 text-center py-8 bg-[#1A1A1A] rounded-lg">No refund requests</p>
+              ) : refunds.map(refund => (
+                <div key={refund.orderId} className="bg-[#1A1A1A] p-5 rounded-lg border border-[#D4AF37]/20">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <p className="text-[#D4AF37] font-bold text-lg">Order #{refund.orderId}</p>
+                      <p className="text-white text-lg">{refund.customerName}</p>
+                      <p className="text-gray-400">📞 {refund.customerPhone}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-red-400">Rs. {refund.amount}</p>
+                      <span className={`text-xs px-3 py-1 rounded mt-2 inline-block ${refund.status === 'requested'? 'bg-yellow-600' : refund.status === 'approved'? 'bg-blue-600' : refund.status === 'processed'? 'bg-purple-600' : refund.status === 'completed'? 'bg-green-600' : 'bg-red-600'}`}>
+                        {refund.status.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-[#0F0F0F] p-3 rounded mb-3">
+                    <p className="text-gray-400 text-sm">Payment Method: <span className="text-white font-bold">{refund.paymentMethod.toUpperCase()}</span></p>
+                    <p className="text-gray-400 text-sm mt-1">Reason: <span className="text-white">{refund.reason}</span></p>
+                  </div>
+                  <div className="flex gap-2">
+                    {refund.status === 'requested' && (
+                      <button onClick={() => {
+                        const updated = refunds.map(r => r.orderId === refund.orderId? {...r, status: 'approved' as any} : r);
+                        setRefunds(updated);
+                        localStorage.setItem('darbar_refunds', JSON.stringify(updated));
+                      }} className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm font-bold">✅ Approve</button>
+                    )}
+                    {refund.status === 'approved' && (
+                      <button onClick={() => {
+                        const updated = refunds.map(r => r.orderId === refund.orderId? {...r, status: 'processed' as any} : r);
+                        setRefunds(updated);
+                        localStorage.setItem('darbar_refunds', JSON.stringify(updated));
+                      }} className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm font-bold">💸 Process Refund</button>
+                    )}
+                    {refund.status === 'processed' && (
+                      <button onClick={() => {
+                        const updated = refunds.map(r => r.orderId === refund.orderId? {...r, status: 'completed' as any} : r);
+                        setRefunds(updated);
+                        localStorage.setItem('darbar_refunds', JSON.stringify(updated));
+                      }} className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm font-bold">✓ Mark Completed</button>
+                    )}
+                    <button onClick={() => {
+                      const updated = refunds.map(r => r.orderId === refund.orderId? {...r, status: 'rejected' as any} : r);
+                      setRefunds(updated);
+                      localStorage.setItem('darbar_refunds', JSON.stringify(updated));
+                    }} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm font-bold">✕ Reject</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
